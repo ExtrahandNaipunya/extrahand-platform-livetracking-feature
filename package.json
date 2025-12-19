@@ -1,0 +1,37 @@
+{
+  "name": "extrahand-maps",
+  "version": "1.0.0",
+  "description": "Production-ready real-time delivery tracking platform with WebSocket and Google Maps integration",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js",
+    "build": "next build",
+    "start": "NODE_ENV=production node server.js",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "test-api": "node test-api.js"
+  },
+  "dependencies": {
+    "@react-google-maps/api": "^2.19.3",
+    "@upstash/redis": "^1.28.4",
+    "axios": "^1.6.5",
+    "dotenv": "^17.2.3",
+    "mongodb": "^6.3.0",
+    "next": "^14.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "socket.io": "^4.6.1",
+    "socket.io-client": "^4.6.1",
+    "zod": "^3.22.4",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3"
+  }
+}
