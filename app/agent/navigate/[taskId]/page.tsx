@@ -142,17 +142,22 @@ export default function AgentNavigationPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
-      {/* Header */}
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Enhanced Header */}
       <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-4 shadow-lg">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">🧭 Navigation</h1>
-            <p className="text-sm text-green-100">Delivering: {taskData.item || 'Package'}</p>
+          <div className="flex items-center space-x-3">
+            <div className="bg-white/20 p-2 rounded-lg">
+              <span className="text-2xl">🧭</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Active Delivery</h1>
+              <p className="text-sm text-green-100">Delivering: {taskData.item || 'Package'}</p>
+            </div>
           </div>
-          <div className="text-right">
+          <div className="text-right bg-white/20 px-4 py-2 rounded-lg">
             <p className="text-2xl font-bold">{eta}</p>
-            <p className="text-xs text-green-100">{distance}</p>
+            <p className="text-xs text-green-100">{distance} away</p>
           </div>
         </div>
       </div>
@@ -207,45 +212,64 @@ export default function AgentNavigationPage() {
       </div>
 
       {/* Bottom Controls */}
-      <div className="bg-white border-t border-gray-200 p-4 shadow-lg">
+      <div className="bg-white border-t-2 border-gray-200 p-4 shadow-2xl">
         <div className="max-w-4xl mx-auto">
+          {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-3 mb-4 text-center">
-            <div className="bg-blue-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">Distance</p>
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-3 border border-blue-200">
+              <p className="text-xs text-blue-700 font-semibold mb-1">DISTANCE</p>
               <p className="text-lg font-bold text-blue-600">{distance}</p>
             </div>
-            <div className="bg-green-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">ETA</p>
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-3 border border-green-200">
+              <p className="text-xs text-green-700 font-semibold mb-1">ETA</p>
               <p className="text-lg font-bold text-green-600">{eta}</p>
             </div>
-            <div className="bg-purple-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">Status</p>
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-3 border border-purple-200">
+              <p className="text-xs text-purple-700 font-semibold mb-1">STATUS</p>
               <p className="text-lg font-bold text-purple-600">
                 {isNavigating ? '🚗 Moving' : '⏸️ Ready'}
               </p>
             </div>
           </div>
 
+          {/* Action Buttons */}
           <div className="flex space-x-3">
             <button
               onClick={startNavigation}
               disabled={isNavigating}
-              className={`flex-1 py-4 rounded-lg font-bold text-lg transition-all ${
+              className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${
                 isNavigating
                   ? 'bg-gray-400 cursor-not-allowed text-white'
                   : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-lg hover:shadow-xl'
               }`}
             >
-              {isNavigating ? '🚗 Navigating...' : '🚀 Start Navigation'}
+              {isNavigating ? (
+                <span className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Navigating...
+                </span>
+              ) : (
+                '🚀 Start Navigation'
+              )}
             </button>
             <button
               onClick={() => calculateRoute()}
-              className="px-6 py-4 bg-white border-2 border-green-500 text-green-600 rounded-lg font-bold hover:bg-green-50 transition-colors"
+              className="px-6 py-4 bg-white border-2 border-green-500 text-green-600 rounded-xl font-bold hover:bg-green-50 transition-colors shadow-md"
             >
-              🔄 Refresh Route
+              🔄
             </button>
           </div>
 
+          {/* Customer Info */}
+          {taskData.customer && (
+            <div className="mt-3 bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
+              <p className="text-sm text-blue-800">
+                <strong>👤 Customer:</strong> {taskData.customer.name} • {taskData.customer.phone}
+              </p>
+            </div>
+          )}
+
+          {/* Tip */}
           <div className="mt-3 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
             <p className="text-sm text-yellow-800">
               <strong>💡 Tip:</strong> Click "Start Navigation" to simulate real-time movement to the destination.

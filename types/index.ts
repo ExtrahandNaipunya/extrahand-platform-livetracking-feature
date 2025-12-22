@@ -3,6 +3,7 @@ export type TaskStatus = 'PENDING' | 'PICKED_UP' | 'ON_THE_WAY' | 'ARRIVING' | '
 export interface Location {
   lat: number;
   lng: number;
+  address?: string;
 }
 
 export interface DriverInfo {
@@ -36,6 +37,8 @@ export interface TrackingData {
   route?: Array<{ lat: number; lng: number }>;
   distance?: number;
   duration?: number;
+  customer?: { name: string; phone: string };
+  item?: string;
 }
 
 export interface DriverUpdatePayload {

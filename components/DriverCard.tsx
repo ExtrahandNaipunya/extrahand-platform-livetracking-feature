@@ -31,15 +31,15 @@ export default function DriverCard({ driver, isConnected }: DriverCardProps) {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
+    <div className="bg-white rounded-lg shadow-xl p-6 border-2 border-yellow-400">
       <div className="flex items-center space-x-4">
         <div className="relative">
-          <div className="w-16 h-16 bg-primary-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">
+          <div className="w-16 h-16 bg-yellow-400 rounded-full flex items-center justify-center text-black text-2xl font-bold border-2 border-black">
             {driver.name.charAt(0).toUpperCase()}
           </div>
           <div 
-            className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white ${
-              isConnected ? 'bg-green-500' : 'bg-gray-400'
+            className={`absolute bottom-0 right-0 w-5 h-5 rounded-full border-2 border-white ${
+              isConnected ? 'bg-yellow-400 animate-pulse' : 'bg-gray-400'
             }`}
             title={isConnected ? 'Connected' : 'Disconnected'}
           />
@@ -96,21 +96,21 @@ export default function DriverCard({ driver, isConnected }: DriverCardProps) {
       <div className="mt-6 flex space-x-3">
         <a
           href={`tel:${driver.phone}`}
-          className="flex-1 bg-primary-500 text-white py-3 rounded-lg font-medium text-center hover:bg-primary-600 transition-colors"
+          className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-black py-3 rounded-lg font-bold text-center transition-colors border-4 border-black"
         >
           Call Driver
         </a>
         <button
-          className="flex-1 border border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+          className="flex-1 border-2 border-yellow-400 text-gray-700 py-3 rounded-lg font-bold hover:bg-yellow-50 transition-colors"
         >
           Message
         </button>
       </div>
 
       {isConnected && (
-        <div className="mt-4 flex items-center justify-center space-x-2 text-green-600 text-sm">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse-slow" />
-          <span>Live tracking active</span>
+        <div className="mt-4 flex items-center justify-center space-x-2 text-yellow-600 text-sm font-semibold bg-yellow-50 py-2 rounded-lg border border-yellow-400">
+          <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+          <span>🔴 Live tracking active</span>
         </div>
       )}
     </div>

@@ -12,32 +12,38 @@ interface StatusPanelProps {
 const statusConfig = {
   PENDING: {
     label: 'Finding Partner',
-    color: 'bg-yellow-500',
+    color: 'bg-yellow-400',
+    textColor: 'text-black',
     icon: '🔍',
   },
   PICKED_UP: {
     label: 'Picked Up',
-    color: 'bg-blue-500',
+    color: 'bg-yellow-400',
+    textColor: 'text-black',
     icon: '📦',
   },
   ON_THE_WAY: {
     label: 'On the Way',
-    color: 'bg-green-500',
+    color: 'bg-yellow-400',
+    textColor: 'text-black',
     icon: '🚗',
   },
   ARRIVING: {
     label: 'Arriving Soon',
-    color: 'bg-orange-500',
+    color: 'bg-yellow-400',
+    textColor: 'text-black',
     icon: '📍',
   },
   COMPLETED: {
     label: 'Completed',
-    color: 'bg-gray-500',
+    color: 'bg-gray-800',
+    textColor: 'text-white',
     icon: '✅',
   },
   CANCELLED: {
     label: 'Cancelled',
     color: 'bg-red-500',
+    textColor: 'text-white',
     icon: '❌',
   },
 };
@@ -46,9 +52,9 @@ export default function StatusPanel({ status, eta, distance }: StatusPanelProps)
   const config = statusConfig[status] || statusConfig.ON_THE_WAY;
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
+    <div className="bg-white rounded-lg shadow-xl p-6 border-2 border-yellow-400">
       <div className="flex items-center space-x-4 mb-4">
-        <div className={`${config.color} text-white px-4 py-2 rounded-full text-2xl`}>
+        <div className={`${config.color} ${config.textColor} px-4 py-2 rounded-full text-2xl font-bold`}>
           {config.icon}
         </div>
         <div className="flex-1">
@@ -58,15 +64,15 @@ export default function StatusPanel({ status, eta, distance }: StatusPanelProps)
       </div>
 
       <div className="grid grid-cols-2 gap-4 mt-6">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <div className="text-sm text-gray-500 mb-1">Estimated Time</div>
-          <div className="text-2xl font-bold text-gray-800">{eta}</div>
+        <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-400">
+          <div className="text-sm text-gray-600 mb-1 font-semibold">⏱️ Estimated Time</div>
+          <div className="text-2xl font-bold text-gray-900">{eta}</div>
         </div>
 
         {distance !== undefined && (
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-500 mb-1">Distance</div>
-            <div className="text-2xl font-bold text-gray-800">
+          <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-400">
+            <div className="text-sm text-gray-600 mb-1 font-semibold">📍 Distance</div>
+            <div className="text-2xl font-bold text-gray-900">
               {distance.toFixed(1)} km
             </div>
           </div>

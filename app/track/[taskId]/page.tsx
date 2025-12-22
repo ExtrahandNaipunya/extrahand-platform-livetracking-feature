@@ -6,6 +6,7 @@ import axios from 'axios';
 import LiveMap from '@/components/LiveMap';
 import StatusPanel from '@/components/StatusPanel';
 import DriverCard from '@/components/DriverCard';
+import EnhancedTrackingHeader from '@/components/EnhancedTrackingHeader';
 import { useTrackingStore } from '@/store/useTrackingStore';
 import { useSocket } from '@/hooks/useSocket';
 import { getRoute, generateFallbackRoute } from '@/lib/routing';
@@ -96,10 +97,10 @@ export default function TrackingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-500 mx-auto mb-4" />
-          <p className="text-gray-600 text-lg">Loading tracking information...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-yellow-400 mx-auto mb-4" />
+          <p className="text-gray-800 text-lg font-semibold">Loading tracking information...</p>
         </div>
       </div>
     );
@@ -107,8 +108,8 @@ export default function TrackingPage() {
 
   if (error && !trackingData) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md border-4 border-yellow-400">
           <div className="text-red-500 text-5xl mb-4 text-center">⚠️</div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">
             Tracking Unavailable
@@ -116,7 +117,7 @@ export default function TrackingPage() {
           <p className="text-gray-600 text-center mb-4">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="w-full bg-primary-500 text-white py-3 rounded-lg font-medium hover:bg-primary-600 transition-colors"
+            className="w-full bg-yellow-400 text-black py-3 rounded-lg font-bold hover:bg-yellow-500 transition-colors border-4 border-black"
           >
             Retry
           </button>
@@ -130,41 +131,27 @@ export default function TrackingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">Live Tracking</h1>
-              <p className="text-sm text-gray-500">Task ID: {taskId}</p>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  isConnected ? 'bg-green-500' : 'bg-gray-400'
-                }`}
-              />
-              <span className="text-sm text-gray-600">
-                {isConnected ? 'Live' : 'Reconnecting...'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Enhanced Header */}
+      <EnhancedTrackingHeader
+        taskId={taskId}
+        isConnected={isConnected}
+        customerName={trackingData.customer?.name}
+        itemName={trackingData.item}
+      />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Map Section */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-lg overflow-hidden" style={{ height: '600px' }}>
+            <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-4 border-yellow-400" style={{ height: '600px' }}>
               <LiveMap
                 pickup={trackingData.pickup}
                 destination={trackingData.destination}
                 currentLocation={currentLocation || trackingData.currentLocation}
                 route={route || undefined}
-                driverName={trackingData.driver.name}
+                driverName={trackingData.driver?.name || 'Driver'}
               />
             </div>
           </div>
@@ -177,10 +164,28 @@ export default function TrackingPage() {
               distance={trackingData.distance}
             />
 
-            <DriverCard
-              driver={trackingData.driver}
-              isConnected={isConnected}
-            />
+            {trackingData.driver ? (
+              <DriverCard
+                driver={trackingData.driver}
+                isConnected={isConnected}
+              />
+            ) : (
+              <div className="bg-white rounded-lg shadow-xl p-6 border-2 border-yellow-400">
+                <div className="text-center">
+                  <div className="text-4xl mb-3">🔍</div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                    Finding Delivery Partner
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Please wait while we assign a delivery partner to your order...
+                  </p>
+                  <div className="mt-4 flex items-center justify-center space-x-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
+                    <span className="text-sm text-gray-600 font-semibold">Searching...</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -143,13 +143,13 @@ export default function LiveMap({
         position={pickup}
         icon={{
           url: 'data:image/svg+xml;base64,' + btoa(`
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" fill="#10b981" stroke="white" stroke-width="2"/>
-              <text x="12" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">P</text>
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" fill="#fbbf24" stroke="#000000" stroke-width="2"/>
+              <text x="12" y="16" text-anchor="middle" fill="#000000" font-size="12" font-weight="bold">P</text>
             </svg>
           `),
-          scaledSize: new google.maps.Size(32, 32),
-          anchor: new google.maps.Point(16, 16),
+          scaledSize: new google.maps.Size(40, 40),
+          anchor: new google.maps.Point(20, 20),
         }}
         title="Pickup Location"
       />
@@ -159,13 +159,13 @@ export default function LiveMap({
         position={destination}
         icon={{
           url: 'data:image/svg+xml;base64,' + btoa(`
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 24 36">
-              <path d="M12 0C7.6 0 4 3.6 4 8c0 6.6 8 16 8 16s8-9.4 8-16c0-4.4-3.6-8-8-8z" fill="#ef4444" stroke="white" stroke-width="1.5"/>
-              <circle cx="12" cy="8" r="3" fill="white"/>
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="56" viewBox="0 0 24 36">
+              <path d="M12 0C7.6 0 4 3.6 4 8c0 6.6 8 16 8 16s8-9.4 8-16c0-4.4-3.6-8-8-8z" fill="#fbbf24" stroke="#000000" stroke-width="2"/>
+              <circle cx="12" cy="8" r="3" fill="#000000"/>
             </svg>
           `),
-          scaledSize: new google.maps.Size(32, 48),
-          anchor: new google.maps.Point(16, 48),
+          scaledSize: new google.maps.Size(40, 56),
+          anchor: new google.maps.Point(20, 56),
         }}
         title="Destination"
       />
@@ -175,16 +175,16 @@ export default function LiveMap({
         position={animatedLocation}
         icon={{
           url: 'data:image/svg+xml;base64,' + btoa(`
-            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 40 40">
               <g transform="rotate(${bearing} 20 20)">
-                <circle cx="20" cy="20" r="18" fill="#0ea5e9" stroke="white" stroke-width="3"/>
-                <path d="M20 8 L26 32 L20 26 L14 32 Z" fill="white"/>
+                <circle cx="20" cy="20" r="18" fill="#000000" stroke="#fbbf24" stroke-width="3"/>
+                <path d="M20 8 L26 32 L20 26 L14 32 Z" fill="#fbbf24"/>
               </g>
-              <circle cx="20" cy="20" r="6" fill="white" opacity="0.3" class="pulse"/>
+              <circle cx="20" cy="20" r="8" fill="#fbbf24" opacity="0.3" class="pulse"/>
             </svg>
           `),
-          scaledSize: new google.maps.Size(40, 40),
-          anchor: new google.maps.Point(20, 20),
+          scaledSize: new google.maps.Size(48, 48),
+          anchor: new google.maps.Point(24, 24),
         }}
         title={driverName || 'Driver'}
         zIndex={1000}
@@ -195,9 +195,9 @@ export default function LiveMap({
         <Polyline
           path={route}
           options={{
-            strokeColor: '#0ea5e9',
-            strokeOpacity: 0.8,
-            strokeWeight: 4,
+            strokeColor: '#fbbf24',
+            strokeOpacity: 1,
+            strokeWeight: 5,
             geodesic: true,
           }}
         />
