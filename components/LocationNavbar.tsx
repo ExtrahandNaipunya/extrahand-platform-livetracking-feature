@@ -177,6 +177,7 @@ export default function LocationNavbar({
                 >
                   <input
                     type="text"
+                    key={`pickup-${pickupLocation?.lat}-${pickupLocation?.lng}`}
                     placeholder="Enter pickup address..."
                     defaultValue={pickupLocation?.address}
                     className="flex-1 px-4 py-2.5 rounded-lg text-gray-800 border-2 border-yellow-400/20 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
@@ -205,6 +206,7 @@ export default function LocationNavbar({
                 >
                   <input
                     type="text"
+                    key={`drop-${dropLocation?.lat}-${dropLocation?.lng}`}
                     placeholder="Enter drop address..."
                     defaultValue={dropLocation?.address}
                     className="flex-1 px-4 py-2.5 rounded-lg text-gray-800 border-2 border-yellow-400/20 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"

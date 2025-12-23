@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { storeTaskData, storeTaskLocation } from '@/lib/redis';
 
 /**
+ * Generate 4-digit OTP
+ */
+function generateOTP(): string {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+/**
  * Create a new order (user places order)
  */
 export async function POST(request: NextRequest) {
@@ -24,6 +31,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Generate OTP for delivery verification
+    const deliveryOTP = generateOTP();
+
     // Store order data in Redis as pending
     const orderData = {
       taskId,
@@ -34,6 +44,7 @@ export async function POST(request: NextRequest) {
       status: 'PENDING', // Waiting for delivery agent
       createdAt: new Date().toISOString(),
       driver: null, // No driver assigned yet
+      deliveryOTP, // Store OTP
     };
 
     await storeTaskData(taskId, orderData);
@@ -66,6 +77,7 @@ export async function POST(request: NextRequest) {
       data: {
         taskId,
         trackingUrl: `/track/${taskId}`,
+        deliveryOTP, // Send OTP to customer (via SMS/email in production)
       },
     });
 

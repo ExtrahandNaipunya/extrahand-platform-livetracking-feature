@@ -16,7 +16,7 @@ export default function HomePage() {
         </div>
 
         {/* Main Modules */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* User Order Module */}
           <Link href="/order/new">
             <div className="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all transform hover:-translate-y-1 cursor-pointer border-4 border-yellow-400 hover:border-yellow-500">
@@ -32,6 +32,26 @@ export default function HomePage() {
               </div>
               <div className="flex items-center text-yellow-600 font-bold">
                 <span>Start ordering</span>
+                <span className="ml-2">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Saved Addresses Module */}
+          <Link href="/addresses">
+            <div className="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all transform hover:-translate-y-1 cursor-pointer border-4 border-yellow-400 hover:border-yellow-500">
+              <div className="text-5xl mb-4">📍</div>
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                Saved Addresses
+              </h2>
+              <p className="text-gray-600 mb-4">
+                Manage your delivery addresses
+              </p>
+              <div className="inline-block bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded mb-2 font-semibold">
+                ✨ Quick Access
+              </div>
+              <div className="flex items-center text-yellow-600 font-bold">
+                <span>View addresses</span>
                 <span className="ml-2">→</span>
               </div>
             </div>
@@ -66,6 +86,23 @@ export default function HomePage() {
               </p>
               <div className="flex items-center text-yellow-600 font-bold">
                 <span>Start testing</span>
+                <span className="ml-2">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Order History */}
+          <Link href="/history">
+            <div className="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all transform hover:-translate-y-1 cursor-pointer border-4 border-yellow-400 hover:border-yellow-500">
+              <div className="text-5xl mb-4">📜</div>
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                Order History
+              </h2>
+              <p className="text-gray-600 mb-4">
+                View your past deliveries and reorder
+              </p>
+              <div className="flex items-center text-yellow-600 font-bold">
+                <span>View orders</span>
                 <span className="ml-2">→</span>
               </div>
             </div>

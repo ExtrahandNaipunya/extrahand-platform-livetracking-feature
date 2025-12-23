@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import LocationNavbar from '@/components/LocationNavbar';
 import MapLocationPicker from '@/components/MapLocationPicker';
+import DeliveryInstructions from '@/components/DeliveryInstructions';
+import MultiStopManager from '@/components/MultiStopManager';
+import { DeliveryInstructions as DeliveryInstructionsType } from '@/types';
+import { Waypoint, addWaypoint } from '@/lib/multistop';
 
 interface Location {
   lat: number;
@@ -39,7 +43,14 @@ export default function NewOrderPage() {
     landmark: '',
   });
 
-  const [activeTab, setActiveTab] = useState<'pickup' | 'drop'>('pickup');
+  const [deliveryInstructions, setDeliveryInstructions] = useState<DeliveryInstructionsType>({
+    type: 'ring_bell',
+    contactPreference: 'call',
+  });
+
+  const [useMultiStop, setUseMultiStop] = useState(false);
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+  const [activeTab, setActiveTab] = useState<'pickup' | 'drop' | 'stop'>('pickup');
 
   const handlePlaceOrder = async () => {
     if (!formData.itemName || !formData.customerName || !formData.customerPhone) {
@@ -74,6 +85,8 @@ export default function NewOrderPage() {
           name: formData.customerName,
           phone: formData.customerPhone,
         },
+        waypoints: useMultiStop ? waypoints : undefined,
+        deliveryInstructions,
       });
 
       if (response.data.success) {
@@ -184,8 +197,20 @@ export default function NewOrderPage() {
                     : 'text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                📍 Pickup Location
+                📍 Pickup
               </button>
+              {useMultiStop && waypoints.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('stop')}
+                  className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+                    activeTab === 'stop'
+                      ? 'bg-yellow-400 text-black shadow-lg'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  🚩 Stops
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('drop')}
                 className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
@@ -194,12 +219,25 @@ export default function NewOrderPage() {
                     : 'text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                🎯 Drop Location
+                🎯 Drop
               </button>
             </div>
 
             {/* Map Picker */}
             <div className="bg-white rounded-2xl shadow-md p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-800">
+                  {activeTab === 'pickup' ? '📍 Select Pickup' : '🎯 Select Drop'}
+                </h3>
+                <button
+                  onClick={() => router.push('/addresses')}
+                  className="text-sm text-yellow-600 hover:text-yellow-700 font-semibold flex items-center space-x-1 border-2 border-yellow-400 px-3 py-1 rounded-lg"
+                >
+                  <span>📋</span>
+                  <span>Saved Addresses</span>
+                </button>
+              </div>
+              
               {activeTab === 'pickup' ? (
                 <MapLocationPicker
                   initialLocation={pickupLocation}
@@ -357,6 +395,54 @@ export default function NewOrderPage() {
                   )}
                 </button>
               </div>
+            </div>
+
+            {/* Delivery Instructions */}
+            <DeliveryInstructions
+              instructions={deliveryInstructions}
+              onSave={setDeliveryInstructions}
+            />
+
+            {/* Multi-Stop Toggle & Manager */}
+            <div className="bg-white rounded-xl shadow-lg p-5 border-2 border-yellow-400">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center">
+                  <span className="text-yellow-400 mr-2">🗺️</span>
+                  Multiple Stops
+                </h3>
+                <button
+                  onClick={() => {
+                    setUseMultiStop(!useMultiStop);
+                    if (!useMultiStop && waypoints.length === 0) {
+                      // Initialize with pickup and drop
+                      const initial: Waypoint[] = [
+                        { ...pickupLocation, order: 0, type: 'pickup' },
+                        { ...dropLocation, order: 1, type: 'destination' },
+                      ];
+                      setWaypoints(initial);
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                    useMultiStop
+                      ? 'bg-yellow-400 text-black border-2 border-black'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {useMultiStop ? 'Enabled ✓' : 'Enable'}
+                </button>
+              </div>
+              
+              {useMultiStop ? (
+                <MultiStopManager
+                  waypoints={waypoints}
+                  onWaypointsChange={setWaypoints}
+                  onAddStop={() => setActiveTab('stop')}
+                />
+              ) : (
+                <p className="text-sm text-gray-600">
+                  Add multiple pickup or drop-off points in a single delivery
+                </p>
+              )}
             </div>
 
             {/* Info Cards */}

@@ -78,6 +78,18 @@ export async function POST(request: NextRequest) {
       await redis.lpush('pending_orders', ...filtered);
     }
 
+    // Broadcast to customer tracking page via WebSocket
+    const { publishLocationUpdate } = await import('@/lib/redis');
+    await publishLocationUpdate(taskId, {
+      ...initialLocation,
+      notification: {
+        type: 'agent_accepted',
+        message: `${agentName} accepted your order!`,
+        driverInfo: updatedTask.driver,
+        deliveryOTP: taskData.deliveryOTP,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       message: 'Order accepted successfully',

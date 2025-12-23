@@ -46,6 +46,8 @@ export async function GET(
       distance: locationData.distance,
       duration: locationData.duration,
       timestamp: locationData.timestamp,
+      deliveryOTP: taskData.deliveryOTP, // Include OTP for driver verification
+      proofOfDelivery: taskData.proofOfDelivery, // Include POD if completed
     };
 
     return NextResponse.json(response);

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const { destination, driver } = taskData;
 
-    // Calculate ETA
+    // Calculate ETA (recalculate on every update for real-time accuracy)
     const etaResult = await calculateETA(
       { lat, lng },
       destination,
@@ -42,11 +42,24 @@ export async function POST(request: NextRequest) {
 
     // Determine status based on distance
     const distanceToDestination = haversineDistance({ lat, lng }, destination);
-    let status: TaskStatus = 'ON_THE_WAY';
+    const distanceToPickup = haversineDistance({ lat, lng }, taskData.pickup);
+    let status: TaskStatus = taskData.status || 'ON_THE_WAY';
 
-    if (distanceToDestination < 0.5) {
-      status = 'ARRIVING';
+    // Update status based on location and current status
+    if (status === 'PENDING') {
+      // Agent hasn't picked up yet
+      if (distanceToPickup < 0.1) {
+        status = 'PICKED_UP'; // At pickup, ready to collect
+      }
+    } else if (status === 'PICKED_UP' || status === 'ON_THE_WAY') {
+      // Agent has picked up, moving to destination
+      if (distanceToDestination < 0.1) {
+        status = 'ARRIVING'; // Very close to destination
+      } else {
+        status = 'ON_THE_WAY'; // En route
+      }
     }
+    // If status is already ARRIVING or COMPLETED, keep it unchanged
 
     // Prepare location update
     const locationUpdate = {

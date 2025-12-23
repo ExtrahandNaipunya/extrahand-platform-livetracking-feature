@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { TrackingData, TaskStatus, Location } from '@/types';
+import { GeofenceMonitor, createGeofenceZones, GeofenceEvent } from '@/lib/geofencing';
 
 interface TrackingStore {
   // Data
@@ -14,12 +15,27 @@ interface TrackingStore {
   useWebSocket: boolean;
   pollingInterval: number;
   
+  // Previous state for comparison
+  previousStatus: TaskStatus | null;
+  previousDistance: number | null;
+  
+  // Geofencing
+  geofenceMonitor: GeofenceMonitor | null;
+  insidePickupZone: boolean;
+  insideDestinationZone: boolean;
+  lastGeofenceEvent: GeofenceEvent | null;
+  
   // Actions
   setTaskId: (taskId: string) => void;
   setTrackingData: (data: TrackingData) => void;
   updateLocation: (location: Location) => void;
   updateETA: (eta: string) => void;
   updateStatus: (status: TaskStatus) => void;
+  updateSpeed: (speed: number) => void;
+  updateRemainingDistance: (distance: number) => void;
+  updateCurrentStreet: (street: string) => void;
+  initializeGeofencing: (pickup: Location, destination: Location) => void;
+  checkGeofence: (location: Location) => void;
   setConnected: (connected: boolean) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -37,6 +53,12 @@ export const useTrackingStore = create<TrackingStore>((set) => ({
   error: null,
   useWebSocket: true,
   pollingInterval: 3000, // 3 seconds
+  previousStatus: null,
+  previousDistance: null,
+  geofenceMonitor: null,
+  insidePickupZone: false,
+  insideDestinationZone: false,
+  lastGeofenceEvent: null,
   
   // Actions
   setTaskId: (taskId) => set({ taskId }),
@@ -64,7 +86,48 @@ export const useTrackingStore = create<TrackingStore>((set) => ({
     trackingData: state.trackingData 
       ? { ...state.trackingData, status }
       : null,
+    previousStatus: state.trackingData?.status || null,
   })),
+  
+  updateSpeed: (speed) => set((state) => ({
+    trackingData: state.trackingData 
+      ? { ...state.trackingData, speed }
+      : null,
+  })),
+  
+  updateRemainingDistance: (remainingDistance) => set((state) => ({
+    trackingData: state.trackingData 
+      ? { ...state.trackingData, remainingDistance }
+      : null,
+    previousDistance: state.trackingData?.remainingDistance || null,
+  })),
+  
+  updateCurrentStreet: (currentStreet) => set((state) => ({
+    trackingData: state.trackingData 
+      ? { ...state.trackingData, currentStreet }
+      : null,
+  })),
+  
+  initializeGeofencing: (pickup, destination) => set(() => {
+    const zones = createGeofenceZones(pickup, destination);
+    const monitor = new GeofenceMonitor(zones);
+    return { geofenceMonitor: monitor };
+  }),
+  
+  checkGeofence: (location) => set((state) => {
+    if (!state.geofenceMonitor) return {};
+    
+    const events = state.geofenceMonitor.checkLocation(location);
+    if (events.length > 0) {
+      const latestEvent = events[events.length - 1];
+      return {
+        lastGeofenceEvent: latestEvent,
+        insidePickupZone: latestEvent.zone.type === 'pickup' && latestEvent.type === 'entered' ? true : state.insidePickupZone,
+        insideDestinationZone: latestEvent.zone.type === 'destination' && latestEvent.type === 'entered' ? true : state.insideDestinationZone,
+      };
+    }
+    return {};
+  }),
   
   setConnected: (connected) => set({ isConnected: connected }),
   
@@ -81,5 +144,11 @@ export const useTrackingStore = create<TrackingStore>((set) => ({
     isConnected: false,
     isLoading: false,
     error: null,
+    previousStatus: null,
+    previousDistance: null,
+    geofenceMonitor: null,
+    insidePickupZone: false,
+    insideDestinationZone: false,
+    lastGeofenceEvent: null,
   }),
 }));

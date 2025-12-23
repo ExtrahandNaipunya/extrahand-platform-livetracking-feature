@@ -24,7 +24,7 @@ export default function DeliveryAgentPage() {
   const [loading, setLoading] = useState(false);
 
   // Login as delivery agent
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!agentName || !agentPhone) {
       alert('Please enter your details');
       return;
@@ -34,8 +34,8 @@ export default function DeliveryAgentPage() {
     setAgentId(id);
     setIsLoggedIn(true);
     
-    // Start polling for orders
-    pollForOrders(id);
+    // Fetch orders immediately on login
+    await pollForOrders(id);
   };
 
   // Poll for pending orders

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useTrackingStore } from '@/store/useTrackingStore';
+import { notificationService } from '@/lib/notification';
 import axios from 'axios';
 
 export function useSocket(taskId: string | null) {
@@ -13,9 +14,16 @@ export function useSocket(taskId: string | null) {
     updateLocation,
     updateETA,
     updateStatus,
+    updateSpeed,
+    updateRemainingDistance,
+    updateCurrentStreet,
     setError,
     useWebSocket,
     pollingInterval,
+    trackingData,
+    previousStatus,
+    previousDistance,
+    checkGeofence,
   } = useTrackingStore();
 
   // Polling fallback function
@@ -28,13 +36,33 @@ export function useSocket(taskId: string | null) {
 
       updateLocation({ lat: data.lat, lng: data.lng });
       updateETA(data.eta);
+      
+      // Check geofence
+      checkGeofence({ lat: data.lat, lng: data.lng });
+      
+      // Check for status change and notify
+      if (data.status !== previousStatus && previousStatus !== null) {
+        notificationService.notifyStatusChange(data.status, data.driver?.name);
+      }
       updateStatus(data.status);
+      
+      // Update additional data
+      if (data.speed !== undefined) updateSpeed(data.speed);
+      if (data.remainingDistance !== undefined) {
+        updateRemainingDistance(data.remainingDistance);
+        // Proximity notification
+        if (data.remainingDistance !== previousDistance) {
+          notificationService.notifyProximity(data.remainingDistance, data.driver?.name);
+        }
+      }
+      if (data.currentStreet) updateCurrentStreet(data.currentStreet);
+      
       setError(null);
     } catch (error: any) {
       console.error('Polling error:', error);
       setError(error.response?.data?.error || 'Failed to fetch location');
     }
-  }, [taskId, updateLocation, updateETA, updateStatus, setError]);
+  }, [taskId, updateLocation, updateETA, updateStatus, updateSpeed, updateRemainingDistance, updateCurrentStreet, setError, previousStatus, previousDistance]);
 
   // Start polling
   const startPolling = useCallback(() => {
@@ -71,12 +99,12 @@ export function useSocket(taskId: string | null) {
 
     // Initialize WebSocket connection
     const socket = io({
-      transports: ['polling', 'websocket'], // Try polling first to avoid warning
+      transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5,
-      upgrade: true,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      reconnectionAttempts: 3,
+      timeout: 10000,
     });
 
     socketRef.current = socket;
@@ -94,10 +122,28 @@ export function useSocket(taskId: string | null) {
     });
 
     socket.on('location_update', (data) => {
-      console.log('Location update received:', data);
       updateLocation({ lat: data.lat, lng: data.lng });
       updateETA(data.eta);
+      
+      // Check geofence
+      checkGeofence({ lat: data.lat, lng: data.lng });
+      
+      // Check for status change and notify
+      if (data.status !== previousStatus && previousStatus !== null) {
+        notificationService.notifyStatusChange(data.status, data.driver?.name);
+      }
       updateStatus(data.status);
+      
+      // Update additional real-time data
+      if (data.speed !== undefined) updateSpeed(data.speed);
+      if (data.remainingDistance !== undefined) {
+        updateRemainingDistance(data.remainingDistance);
+        // Proximity notification
+        if (data.remainingDistance !== previousDistance) {
+          notificationService.notifyProximity(data.remainingDistance, data.driver?.name);
+        }
+      }
+      if (data.currentStreet) updateCurrentStreet(data.currentStreet);
     });
 
     socket.on('disconnect', () => {
@@ -106,24 +152,21 @@ export function useSocket(taskId: string | null) {
       
       // Start polling fallback after disconnect
       reconnectTimeoutRef.current = setTimeout(() => {
-        console.log('WebSocket reconnection failed, falling back to polling');
-        startPolling();
+        if (!socketRef.current?.connected) {
+          console.log('Falling back to polling');
+          startPolling();
+        }
       }, 5000);
     });
 
     socket.on('connect_error', (error) => {
-      console.error('WebSocket connection error:', error);
-      setError('Connection error, using polling fallback');
+      console.error('WebSocket connection error:', error.message);
+      setConnected(false);
       
-      // Fallback to polling immediately on connection error
+      // Fallback to polling on connection error
       if (!pollingIntervalRef.current) {
         startPolling();
       }
-    });
-
-    socket.on('error', (error) => {
-      console.error('WebSocket error:', error);
-      setError(error.message || 'WebSocket error occurred');
     });
 
     // Cleanup
@@ -132,11 +175,14 @@ export function useSocket(taskId: string | null) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       
-      socket.emit('unsubscribe', taskId);
+      if (socket.connected) {
+        socket.emit('unsubscribe', taskId);
+      }
+      socket.removeAllListeners();
       socket.disconnect();
       setConnected(false);
     };
-  }, [taskId, useWebSocket, setConnected, updateLocation, updateETA, updateStatus, setError, startPolling, stopPolling]);
+  }, [taskId, useWebSocket]); // Minimal dependencies
 
   // Cleanup polling on unmount
   useEffect(() => {
