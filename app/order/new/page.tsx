@@ -35,6 +35,21 @@ export default function NewOrderPage() {
     address: 'Gachibowli, Hyderabad',
   });
 
+  // Quick test locations (2-3 min apart)
+  const useQuickTestLocations = () => {
+    setPickupLocation({
+      lat: 17.385044,
+      lng: 78.486671,
+      address: 'HITEC City Metro, Hyderabad',
+    });
+    setDropLocation({
+      lat: 17.390044, // Just ~500m away for quick testing
+      lng: 78.490671,
+      address: 'KIMS Hospital, Kondapur',
+    });
+    alert('✅ Quick test locations set (2-3 min delivery)');
+  };
+
   const [formData, setFormData] = useState({
     itemName: '',
     customerName: '',
@@ -259,7 +274,16 @@ export default function NewOrderPage() {
 
             {/* Selected Locations Summary */}
             <div className="bg-white rounded-2xl shadow-md p-6">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">📋 Selected Locations</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-800">📋 Selected Locations</h3>
+                <button
+                  onClick={useQuickTestLocations}
+                  className="text-xs bg-green-500 text-white px-3 py-1.5 rounded-lg hover:bg-green-600 font-bold"
+                  title="Set nearby locations for quick 2-3 min testing"
+                >
+                  ⚡ Quick Test
+                </button>
+              </div>
               <div className="space-y-4">
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
                   <p className="text-xs text-yellow-700 font-semibold mb-1">⚡ PICKUP LOCATION</p>

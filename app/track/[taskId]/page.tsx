@@ -72,8 +72,8 @@ export default function TrackingPage() {
   useEffect(() => {
     if (!trackingData) return;
 
-    // Check if driver just got assigned (status changed from PENDING to PICKED_UP)
-    if (trackingData.driver && trackingData.status === 'PICKED_UP') {
+    // Check if driver just got assigned
+    if (trackingData.driver && trackingData.status !== 'PENDING') {
       const hasShownNotification = sessionStorage.getItem(`agent_accepted_${taskId}`);
       
       if (!hasShownNotification) {

@@ -16,6 +16,7 @@ export default function AgentNavigationPage() {
 
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '',
+    libraries: ['places'] as any,
   });
 
   const [taskData, setTaskData] = useState<any>(null);
@@ -28,6 +29,8 @@ export default function AgentNavigationPage() {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [deliveryOTP, setDeliveryOTP] = useState('');
+  const [routePoints, setRoutePoints] = useState<Array<{lat: number, lng: number}>>([]);
+  const [currentRouteIndex, setCurrentRouteIndex] = useState(0);
   const mapRef = React.useRef<google.maps.Map | null>(null);
   const watchIdRef = React.useRef<number | null>(null);
   const intervalRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -72,6 +75,32 @@ export default function AgentNavigationPage() {
       const leg = result.routes[0].legs[0];
       setDistance(leg.distance?.text || '');
       setEta(leg.duration?.text || '');
+
+      // Extract route points for simulation
+      const points: Array<{lat: number, lng: number}> = [];
+      leg.steps.forEach((step: any) => {
+        // Get lat/lng points from step
+        if (step.lat_lngs && step.lat_lngs.length > 0) {
+          step.lat_lngs.forEach((point: any) => {
+            points.push({ lat: point.lat(), lng: point.lng() });
+          });
+        } else if (step.start_location && step.end_location) {
+          // Fallback: use start and end of each step
+          points.push({ 
+            lat: step.start_location.lat(), 
+            lng: step.start_location.lng() 
+          });
+        }
+      });
+      // Add final destination
+      if (leg.end_location) {
+        points.push({ 
+          lat: leg.end_location.lat(), 
+          lng: leg.end_location.lng() 
+        });
+      }
+      console.log(`Route extracted: ${points.length} waypoints`);
+      setRoutePoints(points);
     } catch (error) {
       console.error('Error calculating route:', error);
     }
@@ -138,45 +167,54 @@ export default function AgentNavigationPage() {
 
   // Simulate movement (for testing without real GPS)
   const startSimulation = () => {
+    if (!taskData || !currentLocation) {
+      alert('⚠️ Please wait for task data to load');
+      return;
+    }
+
+    if (routePoints.length === 0) {
+      alert('⚠️ Route not loaded yet, please wait');
+      return;
+    }
+
     setIsNavigating(true);
     setUseRealGPS(false);
+    setCurrentRouteIndex(0);
     
-    intervalRef.current = setInterval(async () => {
-      if (!currentLocation || !taskData) return;
+    intervalRef.current = setInterval(() => {
+      setCurrentRouteIndex((prevIndex) => {
+        if (prevIndex >= routePoints.length - 1) {
+          stopNavigation();
+          setShowCompleteModal(true);
+          return prevIndex;
+        }
 
-      // Move slightly towards destination
-      const newLat = currentLocation.lat + (taskData.destination.lat - currentLocation.lat) * 0.05;
-      const newLng = currentLocation.lng + (taskData.destination.lng - currentLocation.lng) * 0.05;
+        // Move to next point on route (skip points for speed)
+        const skipPoints = 3; // Skip 3 points for faster movement
+        const nextIndex = Math.min(prevIndex + skipPoints, routePoints.length - 1);
+        const newLocation = routePoints[nextIndex];
 
-      const newLocation = { lat: newLat, lng: newLng };
-      setCurrentLocation(newLocation);
+        setCurrentLocation(newLocation);
 
-      // Send update to server
-      try {
-        const response = await axios.post('/api/driver/update', {
+        // Send update to server
+        axios.post('/api/driver/update', {
           taskId,
           driverId: taskData.driver?.id || 'agent_001',
-          lat: newLat,
-          lng: newLng,
+          lat: newLocation.lat,
+          lng: newLocation.lng,
           speed: 40,
           timestamp: Date.now(),
+        }).then((response) => {
+          if (response.data.data?.eta) {
+            setEta(response.data.data.eta);
+          }
+        }).catch((error) => {
+          console.error('Error updating location:', error);
         });
 
-        // Update ETA
-        if (response.data.data?.eta) {
-          setEta(response.data.data.eta);
-        }
-      } catch (error) {
-        console.error('Error updating location:', error);
-      }
-
-      // Check if arrived
-      const distanceToDestination = getDistance(newLocation, taskData.destination);
-      if (distanceToDestination < 0.1) {
-        stopNavigation();
-        setShowCompleteModal(true);
-      }
-    }, 3000);
+        return nextIndex;
+      });
+    }, 1500); // Update every 1.5 seconds
   };
 
   // Stop navigation
@@ -190,6 +228,7 @@ export default function AgentNavigationPage() {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    setCurrentRouteIndex(0);
   };
 
   // Complete delivery
@@ -292,6 +331,21 @@ export default function AgentNavigationPage() {
             fullscreenControl: true,
           }}
         >
+          {/* Pickup Marker */}
+          <Marker
+            position={taskData.pickup}
+            icon={{
+              url: 'data:image/svg+xml;base64,' + btoa(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" fill="#fbbf24" stroke="white" stroke-width="2"/>
+                  <text x="12" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">P</text>
+                </svg>
+              `),
+              scaledSize: new google.maps.Size(32, 32),
+            }}
+            title="Pickup Location"
+          />
+
           {/* Current Location */}
           {currentLocation && (
             <Marker

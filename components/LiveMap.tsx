@@ -107,7 +107,7 @@ export default function LiveMap({
     };
   }, [currentLocation]);
 
-  // Auto-center map intelligently (debounced)
+  // Auto-center map intelligently (only once on load)
   const centerMap = useCallback(() => {
     if (!mapRef.current || !pickup || !destination) return;
 
@@ -119,13 +119,17 @@ export default function LiveMap({
     mapRef.current.fitBounds(bounds, 80);
   }, [pickup, destination, animatedLocation]);
 
-  // Only recenter when necessary (not on every location update)
+  // Only recenter on initial load
+  const hasCenteredRef = useRef(false);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      centerMap();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [pickup, destination]); // Only on pickup/destination change
+    if (!hasCenteredRef.current && pickup && destination) {
+      const timer = setTimeout(() => {
+        centerMap();
+        hasCenteredRef.current = true;
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [pickup, destination]); // Only on initial load
 
   const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
