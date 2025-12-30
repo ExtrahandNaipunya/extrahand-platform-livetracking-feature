@@ -153,13 +153,31 @@ export default function TrackingPage() {
     };
   }, [isMobile, pullDistance, taskId, setTrackingData, setLoading]);
 
-  // Auto-show POD modal when delivery is completed (driver side)
+  // POD modal should NOT show on user tracking page - only on agent side
   useEffect(() => {
-    if (trackingData?.status === 'ARRIVING' && !trackingData.proofOfDelivery) {
-      // Show POD when driver is arriving
-      setShowPODModal(true);
-    }
+    // This page is for USERS to track their delivery
+    // POD (Proof of Delivery) should only be handled on agent/driver app
+    // Removed auto-show POD modal logic
   }, [trackingData?.status, trackingData?.proofOfDelivery]);
+
+  // DEBUG: Monitor real-time location updates
+  useEffect(() => {
+    if (trackingData?.currentLocation) {
+      console.log('🔵 USER TRACKING: Location updated', {
+        currentLocation: trackingData.currentLocation,
+        status: trackingData.status,
+        eta: trackingData.eta,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [trackingData?.currentLocation, trackingData?.status, trackingData?.eta]);
+
+  // DEBUG: Monitor currentLocation from store
+  useEffect(() => {
+    if (currentLocation) {
+      console.log('🟢 STORE: currentLocation from Zustand store', currentLocation);
+    }
+  }, [currentLocation]);
 
   // Fetch initial tracking data
   useEffect(() => {
@@ -480,10 +498,11 @@ export default function TrackingPage() {
             {/* Map Section */}
             <div className="lg:col-span-2">
               <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-4 border-yellow-400" style={{ height: '600px' }}>
+                {/* FIXED: Ensure LiveMap gets real-time location updates */}
                 <LiveMap
                   pickup={trackingData.pickup}
                   destination={trackingData.destination}
-                  currentLocation={currentLocation || trackingData.currentLocation}
+                  currentLocation={trackingData.currentLocation}
                   route={route || undefined}
                   driverName={trackingData.driver?.name || 'Driver'}
                 />
@@ -606,10 +625,11 @@ export default function TrackingPage() {
         /* Mobile Layout - Full Screen Map with Bottom Sheet */
         <>
           <div className="fixed top-16 left-0 right-0 bottom-0 z-10">
+            {/* FIXED: Same as desktop - use trackingData.currentLocation */}
             <LiveMap
               pickup={trackingData.pickup}
               destination={trackingData.destination}
-              currentLocation={currentLocation || trackingData.currentLocation}
+              currentLocation={trackingData.currentLocation}
               route={route || undefined}
               driverName={trackingData.driver?.name || 'Driver'}
             />
@@ -650,13 +670,7 @@ export default function TrackingPage() {
         taskId={taskId}
       />
 
-      <ProofOfDeliveryModal
-        isOpen={showPODModal}
-        onClose={() => setShowPODModal(false)}
-        onSubmit={handlePODSubmit}
-        taskId={taskId}
-        expectedOTP={deliveryOTP || trackingData?.deliveryOTP}
-      />
+      {/* POD Modal removed - only for agent/driver app, not for user tracking */}
     </div>
   );
 }

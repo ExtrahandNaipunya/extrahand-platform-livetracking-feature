@@ -114,12 +114,14 @@ export default function BottomSheet({
       </div>
 
       <div className={`px-4 pb-6 overflow-y-auto ${isExpanded ? 'h-[calc(60vh-40px)]' : 'h-[140px]'}`}>
-        {/* OTP Display - Mobile */}
+        {/* OTP Display - Mobile - PROMINENT */}
         {deliveryOTP && status !== 'COMPLETED' && (
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl p-4 mb-4 shadow-lg">
-            <p className="text-xs font-bold text-center text-blue-100 mb-1">🔐 DELIVERY OTP</p>
-            <p className="text-4xl font-black text-center tracking-widest">{deliveryOTP}</p>
-            <p className="text-xs text-center text-blue-100 mt-1">Share with driver at delivery</p>
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl p-4 mb-4 shadow-lg border-4 border-blue-700 animate-pulse-slow">
+            <p className="text-xs font-bold text-center text-blue-100 mb-1">🔐 YOUR DELIVERY OTP</p>
+            <p className="text-4xl font-black text-center tracking-widest mb-2">{deliveryOTP}</p>
+            <p className="text-xs text-center text-blue-100 leading-relaxed">
+              Tell this code to driver VERBALLY when they arrive at pickup location
+            </p>
           </div>
         )}
 

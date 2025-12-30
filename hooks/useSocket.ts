@@ -26,13 +26,26 @@ export function useSocket(taskId: string | null) {
     checkGeofence,
   } = useTrackingStore();
 
-  // Polling fallback function
+  // Polling fallback function with movement validation
   const pollLocation = useCallback(async () => {
     if (!taskId) return;
 
     try {
       const response = await axios.get(`/api/task/${taskId}/live`);
       const data = response.data;
+
+      // Validate location change - only update if significant movement
+      const currentLoc = trackingData?.currentLocation;
+      if (currentLoc) {
+        const distance = Math.sqrt(
+          Math.pow(data.lat - currentLoc.lat, 2) + 
+          Math.pow(data.lng - currentLoc.lng, 2)
+        );
+        // Only update if moved more than 0.0001 degrees (~11 meters)
+        if (distance < 0.0001) {
+          return; // Skip minor jitter
+        }
+      }
 
       updateLocation({ lat: data.lat, lng: data.lng });
       updateETA(data.eta);
@@ -50,8 +63,8 @@ export function useSocket(taskId: string | null) {
       if (data.speed !== undefined) updateSpeed(data.speed);
       if (data.remainingDistance !== undefined) {
         updateRemainingDistance(data.remainingDistance);
-        // Proximity notification
-        if (data.remainingDistance !== previousDistance) {
+        // Proximity notification - only on significant distance change (>100m)
+        if (Math.abs(data.remainingDistance - (previousDistance || 0)) > 0.1) {
           notificationService.notifyProximity(data.remainingDistance, data.driver?.name);
         }
       }
@@ -62,9 +75,9 @@ export function useSocket(taskId: string | null) {
       console.error('Polling error:', error);
       setError(error.response?.data?.error || 'Failed to fetch location');
     }
-  }, [taskId, updateLocation, updateETA, updateStatus, updateSpeed, updateRemainingDistance, updateCurrentStreet, setError, previousStatus, previousDistance]);
+  }, [taskId, updateLocation, updateETA, updateStatus, updateSpeed, updateRemainingDistance, updateCurrentStreet, setError, previousStatus, previousDistance, trackingData?.currentLocation, checkGeofence]);
 
-  // Start polling
+  // Start polling with improved interval
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
@@ -73,10 +86,10 @@ export function useSocket(taskId: string | null) {
     // Initial poll
     pollLocation();
 
-    // Set up interval
-    pollingIntervalRef.current = setInterval(pollLocation, pollingInterval);
-    console.log('Started polling fallback');
-  }, [pollLocation, pollingInterval]);
+    // Set up interval - 5 seconds for smoother animations
+    pollingIntervalRef.current = setInterval(pollLocation, 5000);
+    console.log('Started polling fallback (5s interval)');
+  }, [pollLocation]);
 
   // Stop polling
   const stopPolling = useCallback(() => {

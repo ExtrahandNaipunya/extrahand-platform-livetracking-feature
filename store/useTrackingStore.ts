@@ -52,7 +52,7 @@ export const useTrackingStore = create<TrackingStore>((set) => ({
   isLoading: false,
   error: null,
   useWebSocket: true,
-  pollingInterval: 3000, // 3 seconds
+  pollingInterval: 5000, // 5 seconds for smoother animations
   previousStatus: null,
   previousDistance: null,
   geofenceMonitor: null,

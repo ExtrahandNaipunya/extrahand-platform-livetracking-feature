@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTaskData, storeTaskData, storeTaskLocation, redis } from '@/lib/redis';
 
 /**
+ * Generate a 4-digit delivery OTP
+ */
+function generateDeliveryOTP(): string {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+/**
  * Accept an order (delivery agent accepts)
  */
 export async function POST(request: NextRequest) {
@@ -33,7 +40,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update task with driver info
+    // Update task with driver info and ensure OTP exists
     const updatedTask = {
       ...taskData,
       driver: {
@@ -45,11 +52,12 @@ export async function POST(request: NextRequest) {
       },
       status: 'PICKED_UP',
       acceptedAt: new Date().toISOString(),
+      deliveryOTP: taskData.deliveryOTP || generateDeliveryOTP(),
     };
 
     await storeTaskData(taskId, updatedTask);
 
-    // Initialize location at pickup
+    // Initialize location at pickup with OTP
     const initialLocation = {
       taskId,
       driverId: agentId,
@@ -62,6 +70,7 @@ export async function POST(request: NextRequest) {
       distance: 0,
       duration: 0,
       driver: updatedTask.driver,
+      deliveryOTP: updatedTask.deliveryOTP,
     };
 
     await storeTaskLocation(taskId, initialLocation);
@@ -86,7 +95,8 @@ export async function POST(request: NextRequest) {
         type: 'agent_accepted',
         message: `${agentName} accepted your order!`,
         driverInfo: updatedTask.driver,
-        deliveryOTP: taskData.deliveryOTP,
+        deliveryOTP: updatedTask.deliveryOTP,
+        agentMessage: `Your delivery OTP is: ${updatedTask.deliveryOTP}. Share this with customer at delivery.`,
       },
     });
 
@@ -96,6 +106,7 @@ export async function POST(request: NextRequest) {
       data: {
         taskId,
         navigationUrl: `/agent/navigate/${taskId}`,
+        deliveryOTP: updatedTask.deliveryOTP,
       },
     });
 

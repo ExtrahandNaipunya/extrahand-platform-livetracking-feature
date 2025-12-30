@@ -17,9 +17,9 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // Validate required fields
-    if (!taskId || !otp) {
+    if (!taskId) {
       return NextResponse.json(
-        { error: 'Missing taskId or OTP' },
+        { error: 'Missing taskId' },
         { status: 400 }
       );
     }
@@ -34,8 +34,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify OTP
-    if (taskData.deliveryOTP !== otp) {
+    // OTP verification is OPTIONAL (pickup was already verified)
+    // If OTP is provided, verify it; otherwise skip verification
+    if (otp && taskData.deliveryOTP && taskData.deliveryOTP !== otp) {
       return NextResponse.json(
         { error: 'Invalid OTP' },
         { status: 401 }

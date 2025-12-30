@@ -56,14 +56,24 @@ export default function LiveMap({
 
   // Smooth marker animation with throttling
   useEffect(() => {
+    // DEBUG: Log when currentLocation prop changes
+    console.log('🔴 LIVEMAP: currentLocation prop updated', {
+      currentLocation,
+      previousLocation: previousLocationRef.current,
+      timestamp: new Date().toISOString()
+    });
+
     // Skip animation if location hasn't changed significantly
     const distanceThreshold = 0.00001; // ~1 meter
     const latDiff = Math.abs(currentLocation.lat - previousLocationRef.current.lat);
     const lngDiff = Math.abs(currentLocation.lng - previousLocationRef.current.lng);
     
     if (latDiff < distanceThreshold && lngDiff < distanceThreshold) {
+      console.log('🟡 LIVEMAP: Skipping animation - movement too small');
       return;
     }
+
+    console.log('🟢 LIVEMAP: Starting animation', { from: animatedLocation, to: currentLocation });
 
     const duration = 1000; // 1 second animation
     const startTime = Date.now();

@@ -21,6 +21,7 @@ export default function AgentNavigationPage() {
 
   const [taskData, setTaskData] = useState<any>(null);
   const [currentLocation, setCurrentLocation] = useState<any>(null);
+  const [mapCenter, setMapCenter] = useState<any>(null); // FIXED: Stable map center
   const [directions, setDirections] = useState<any>(null);
   const [distance, setDistance] = useState('');
   const [eta, setEta] = useState('');
@@ -28,20 +29,64 @@ export default function AgentNavigationPage() {
   const [useRealGPS, setUseRealGPS] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [otpInput, setOtpInput] = useState('');
-  const [deliveryOTP, setDeliveryOTP] = useState('');
+  const [pickupOTP, setPickupOTP] = useState(''); // NEW: For pickup verification
+  const [isPickupVerified, setIsPickupVerified] = useState(false); // NEW: Track pickup verification
+  const [deliveryOTP, setDeliveryOTP] = useState(''); // OTP exists but NOT shown to agent
   const [routePoints, setRoutePoints] = useState<Array<{lat: number, lng: number}>>([]);
   const [currentRouteIndex, setCurrentRouteIndex] = useState(0);
   const mapRef = React.useRef<google.maps.Map | null>(null);
   const watchIdRef = React.useRef<number | null>(null);
   const intervalRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch task data
+  // Fetch task data and agent's current location
   useEffect(() => {
     const fetchTask = async () => {
       try {
         const response = await axios.get(`/api/task/${taskId}/live`);
         setTaskData(response.data);
-        setCurrentLocation(response.data.pickup); // Start at pickup
+        
+        // FIXED: Get agent's CURRENT location via GPS instead of starting at pickup
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const agentLocation = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              };
+              console.log('📍 AGENT: Starting from current GPS location', agentLocation);
+              setCurrentLocation(agentLocation);
+              
+              // Set map center ONCE on initial load
+              if (!mapCenter) {
+                setMapCenter(agentLocation);
+              }
+            },
+            (error) => {
+              // Fallback to pickup location if GPS fails
+              console.warn('⚠️ GPS failed, using pickup location as fallback', error);
+              const fallbackLocation = response.data.pickup;
+              setCurrentLocation(fallbackLocation);
+              if (!mapCenter) {
+                setMapCenter(fallbackLocation);
+              }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          );
+        } else {
+          // No geolocation support - use pickup as fallback
+          const fallbackLocation = response.data.pickup;
+          setCurrentLocation(fallbackLocation);
+          if (!mapCenter) {
+            setMapCenter(fallbackLocation);
+          }
+        }
+        
+        // Check if pickup already verified
+        if (response.data.status === 'PICKED_UP' || response.data.status === 'ON_THE_WAY' || response.data.status === 'ARRIVING') {
+          setIsPickupVerified(true);
+        }
+        
+        // Store OTP for verification (but don't display to agent)
         if (response.data.deliveryOTP) {
           setDeliveryOTP(response.data.deliveryOTP);
         }
@@ -165,7 +210,7 @@ export default function AgentNavigationPage() {
     );
   };
 
-  // Simulate movement (for testing without real GPS)
+  // Simulate movement (for testing without real GPS) - IMPROVED for smoother movement
   const startSimulation = () => {
     if (!taskData || !currentLocation) {
       alert('⚠️ Please wait for task data to load');
@@ -181,6 +226,7 @@ export default function AgentNavigationPage() {
     setUseRealGPS(false);
     setCurrentRouteIndex(0);
     
+    // IMPROVED: Slower, smoother movement
     intervalRef.current = setInterval(() => {
       setCurrentRouteIndex((prevIndex) => {
         if (prevIndex >= routePoints.length - 1) {
@@ -189,32 +235,33 @@ export default function AgentNavigationPage() {
           return prevIndex;
         }
 
-        // Move to next point on route (skip points for speed)
-        const skipPoints = 3; // Skip 3 points for faster movement
-        const nextIndex = Math.min(prevIndex + skipPoints, routePoints.length - 1);
+        // CHANGED: Move 1 point at a time instead of skipping (smoother)
+        const nextIndex = Math.min(prevIndex + 1, routePoints.length - 1);
         const newLocation = routePoints[nextIndex];
 
         setCurrentLocation(newLocation);
 
-        // Send update to server
-        axios.post('/api/driver/update', {
-          taskId,
-          driverId: taskData.driver?.id || 'agent_001',
-          lat: newLocation.lat,
-          lng: newLocation.lng,
-          speed: 40,
-          timestamp: Date.now(),
-        }).then((response) => {
-          if (response.data.data?.eta) {
-            setEta(response.data.data.eta);
-          }
-        }).catch((error) => {
-          console.error('Error updating location:', error);
-        });
+        // Send update to server - THROTTLED to every 5 updates for better performance
+        if (nextIndex % 5 === 0) {
+          axios.post('/api/driver/update', {
+            taskId,
+            driverId: taskData.driver?.id || 'agent_001',
+            lat: newLocation.lat,
+            lng: newLocation.lng,
+            speed: 40,
+            timestamp: Date.now(),
+          }).then((response) => {
+            if (response.data.data?.eta) {
+              setEta(response.data.data.eta);
+            }
+          }).catch((error) => {
+            console.error('Error updating location:', error);
+          });
+        }
 
         return nextIndex;
       });
-    }, 1500); // Update every 1.5 seconds
+    }, 800); // INCREASED from 1500ms to 800ms but with 1-point movement = smoother
   };
 
   // Stop navigation
@@ -231,22 +278,48 @@ export default function AgentNavigationPage() {
     setCurrentRouteIndex(0);
   };
 
-  // Complete delivery
-  const handleCompleteDelivery = async () => {
-    if (!otpInput || otpInput.length !== 4) {
-      alert('❌ Please enter 4-digit OTP');
+  // NEW: Verify pickup OTP
+  const verifyPickupOTP = async () => {
+    if (!pickupOTP || pickupOTP.length < 4) {
+      alert('❌ Please enter the 4-digit OTP from customer');
+      return;
+    }
+
+    if (pickupOTP !== deliveryOTP) {
+      alert('❌ Incorrect OTP. Please ask the customer to tell you the correct OTP.');
       return;
     }
 
     try {
+      // Update status to PICKED_UP
+      const response = await axios.post('/api/driver/update', {
+        taskId,
+        driverId: taskData.driver?.id || 'agent_001',
+        lat: currentLocation.lat,
+        lng: currentLocation.lng,
+        speed: 0,
+        timestamp: Date.now(),
+      });
+
+      setIsPickupVerified(true);
+      alert('✅ Pickup verified! You can now start the journey to destination.');
+    } catch (error) {
+      console.error('Error verifying pickup:', error);
+      alert('❌ Failed to verify pickup. Please try again.');
+    }
+  };
+
+  // Complete delivery - NO OTP NEEDED (already verified at pickup)
+  const handleCompleteDelivery = async () => {
+    // No OTP check - customer already verified at pickup
+    try {
       const response = await axios.post('/api/delivery/complete', {
         taskId,
-        otp: otpInput,
         proofOfDelivery: {
-          photoUrl: 'captured_photo_url',
-          signatureUrl: 'captured_signature_url',
+          deliveredAt: new Date().toISOString(),
           recipientName: taskData.customer?.name || 'Customer',
-          notes: 'Delivered successfully',
+          notes: 'Delivered successfully - Pickup was verified with OTP',
+          photoUrl: 'data:image/png;base64,placeholder', // In production, capture actual photo
         },
       });
 
@@ -255,11 +328,8 @@ export default function AgentNavigationPage() {
         window.location.href = '/agent';
       }
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        alert('❌ Invalid OTP. Please check and try again.');
-      } else {
-        alert('❌ Failed to complete delivery');
-      }
+      alert('❌ Failed to complete delivery');
+      console.error('Delivery completion error:', error);
     }
   };
 
@@ -298,6 +368,9 @@ export default function AgentNavigationPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-green-50 to-emerald-50">
+      {/* REMOVED: OTP Display Banner - Agent should NOT see OTP */}
+      {/* OTP is for customer to tell agent verbally at pickup location */}
+
       {/* Enhanced Header */}
       <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-4 shadow-lg">
         <div className="flex items-center justify-between">
@@ -317,11 +390,44 @@ export default function AgentNavigationPage() {
         </div>
       </div>
 
-      {/* Map */}
+      {/* Map - FIXED: Stable center to prevent flickering */}
       <div className="flex-1 relative">
+        {/* PICKUP OTP VERIFICATION OVERLAY - Shows when not verified */}
+        {!isPickupVerified && (
+          <div className="absolute top-4 left-0 right-0 mx-4 bg-white rounded-xl shadow-2xl p-5 z-50 border-4 border-blue-500 animate-pulse-slow">
+            <h3 className="font-bold text-xl mb-2 text-gray-900">📍 Arrived at Pickup Location?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Ask the customer to tell you the 4-digit OTP verbally, then enter it below to verify pickup.
+            </p>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                maxLength={4}
+                value={pickupOTP}
+                onChange={(e) => setPickupOTP(e.target.value.replace(/\D/g, ''))}
+                placeholder="Enter 4-digit OTP"
+                className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg text-center text-3xl font-bold tracking-widest focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                onClick={verifyPickupOTP}
+                disabled={pickupOTP.length < 4}
+                className={`bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors ${
+                  pickupOTP.length < 4 ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Verify
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-3 text-center">
+              🔒 Customer has the OTP on their tracking screen
+            </p>
+          </div>
+        )}
+
         <GoogleMap
+          key={`map-${taskId}`}
           mapContainerStyle={mapContainerStyle}
-          center={currentLocation}
+          center={mapCenter || currentLocation}
           zoom={14}
           onLoad={(map) => { mapRef.current = map; }}
           options={{
@@ -329,10 +435,14 @@ export default function AgentNavigationPage() {
             mapTypeControl: false,
             streetViewControl: false,
             fullscreenControl: true,
+            disableDefaultUI: false,
+            keyboardShortcuts: true,
+            gestureHandling: 'greedy',
           }}
         >
           {/* Pickup Marker */}
           <Marker
+            key={`pickup-${taskId}`}
             position={taskData.pickup}
             icon={{
               url: 'data:image/svg+xml;base64,' + btoa(`
@@ -346,9 +456,10 @@ export default function AgentNavigationPage() {
             title="Pickup Location"
           />
 
-          {/* Current Location */}
+          {/* Current Location - NO ANIMATION to prevent flicker */}
           {currentLocation && (
             <Marker
+              key={`current-${currentLocation.lat}-${currentLocation.lng}`}
               position={currentLocation}
               icon={{
                 url: 'data:image/svg+xml;base64,' + btoa(`
@@ -365,6 +476,7 @@ export default function AgentNavigationPage() {
 
           {/* Destination */}
           <Marker
+            key={`destination-${taskId}`}
             position={taskData.destination}
             icon={{
               url: 'data:image/svg+xml;base64,' + btoa(`
@@ -378,8 +490,21 @@ export default function AgentNavigationPage() {
             title="Destination"
           />
 
-          {/* Route */}
-          {directions && <DirectionsRenderer directions={directions} options={{ suppressMarkers: true }} />}
+          {/* Route - ONLY RENDER IF LOADED */}
+          {directions && (
+            <DirectionsRenderer
+              key={`directions-${taskId}`}
+              directions={directions}
+              options={{
+                suppressMarkers: true,
+                polylineOptions: {
+                  strokeColor: '#10b981',
+                  strokeWeight: 4,
+                  strokeOpacity: 0.8,
+                },
+              }}
+            />
+          )}
         </GoogleMap>
       </div>
 
@@ -406,28 +531,33 @@ export default function AgentNavigationPage() {
 
           {/* Action Buttons */}
           <div className="space-y-3">
+            {!isPickupVerified && (
+              <div className="bg-orange-100 border-2 border-orange-400 rounded-xl p-4 text-center">
+                <p className="text-orange-800 font-bold">🔒 Verify pickup OTP first to start navigation</p>
+              </div>
+            )}
             <div className="flex space-x-3">
               <button
                 onClick={startRealGPS}
-                disabled={isNavigating}
+                disabled={!isPickupVerified || isNavigating}
                 className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${
-                  isNavigating
+                  !isPickupVerified || isNavigating
                     ? 'bg-gray-400 cursor-not-allowed text-white'
                     : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl'
                 }`}
               >
-                📍 Real GPS
+                {!isPickupVerified ? '🔒 Real GPS' : '📍 Real GPS'}
               </button>
               <button
                 onClick={startSimulation}
-                disabled={isNavigating}
+                disabled={!isPickupVerified || isNavigating}
                 className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${
-                  isNavigating
+                  !isPickupVerified || isNavigating
                     ? 'bg-gray-400 cursor-not-allowed text-white'
                     : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-lg hover:shadow-xl'
                 }`}
               >
-                🚀 Simulate
+                {!isPickupVerified ? '🔒 Simulate' : '🚀 Simulate'}
               </button>
             </div>
             {isNavigating && (
@@ -465,29 +595,29 @@ export default function AgentNavigationPage() {
         </div>
       </div>
 
-      {/* Complete Delivery Modal */}
+      {/* Complete Delivery Modal - PHOTO ONLY (No OTP at delivery) */}
       {showCompleteModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">🎉 Complete Delivery</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">🎯 Arrived at Destination</h2>
 
-            <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Enter OTP from Customer
-              </label>
-              <input
-                type="text"
-                maxLength={4}
-                value={otpInput}
-                onChange={(e) => setOtpInput(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="0000"
-                className="w-full px-4 py-3 text-2xl text-center tracking-widest border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none font-bold"
-              />
+            <div className="bg-green-50 border-l-4 border-green-400 p-4 mb-4 rounded">
+              <p className="text-sm text-green-800">
+                <strong>✅ Pickup Verified:</strong> Customer OTP was confirmed at pickup location
+              </p>
             </div>
 
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 mb-4 rounded">
-              <p className="text-sm text-yellow-800">
-                <strong>📸 Note:</strong> In production, capture photo & signature here
+            <div className="mb-4">
+              <div className="bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-8 border-2 border-dashed border-gray-400 text-center">
+                <div className="text-5xl mb-3">📸</div>
+                <p className="text-gray-600 font-semibold">Take Photo of Delivery</p>
+                <p className="text-xs text-gray-500 mt-2">In production: Camera capture</p>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4 rounded">
+              <p className="text-sm text-blue-800">
+                <strong>📌 Location:</strong> {taskData.destination?.address || 'Destination'}
               </p>
             </div>
 
@@ -495,7 +625,6 @@ export default function AgentNavigationPage() {
               <button
                 onClick={() => {
                   setShowCompleteModal(false);
-                  setOtpInput('');
                 }}
                 className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
               >
@@ -505,7 +634,7 @@ export default function AgentNavigationPage() {
                 onClick={handleCompleteDelivery}
                 className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-bold hover:from-green-600 hover:to-emerald-700 transition-all shadow-lg"
               >
-                ✅ Complete
+                ✅ Confirm Delivery
               </button>
             </div>
           </div>

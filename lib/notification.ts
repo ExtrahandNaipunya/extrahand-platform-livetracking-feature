@@ -17,6 +17,7 @@ class NotificationService {
   private static instance: NotificationService;
   private listeners: ((notification: ToastNotification) => void)[] = [];
   private notificationPermission: NotificationPermission = 'default';
+  private notificationCooldown: Map<string, number> = new Map();
 
   private constructor() {
     this.checkPermission();
@@ -34,6 +35,19 @@ class NotificationService {
     if ('Notification' in window) {
       this.notificationPermission = Notification.permission;
     }
+  }
+
+  // Check if notification is duplicate (deduplication mechanism)
+  private isDuplicate(key: string, cooldownMs: number = 5000): boolean {
+    const lastTime = this.notificationCooldown.get(key);
+    const now = Date.now();
+    
+    if (lastTime && now - lastTime < cooldownMs) {
+      return true; // Skip duplicate within cooldown period
+    }
+    
+    this.notificationCooldown.set(key, now);
+    return false;
   }
 
   // Request permission for browser notifications
@@ -162,8 +176,11 @@ class NotificationService {
     }
   }
 
-  // Status change notifications
+  // Status change notifications with deduplication
   notifyStatusChange(status: TaskStatus, driverName?: string): void {
+    const key = `status_${status}`;
+    if (this.isDuplicate(key, 8000)) return; // 8 second cooldown
+
     const statusMessages: Record<TaskStatus, { title: string; message: string; type: NotificationType; icon: string }> = {
       PENDING: {
         title: '🔍 Finding Delivery Partner',
@@ -218,15 +235,21 @@ class NotificationService {
     }
   }
 
-  // Proximity notifications
+  // Proximity notifications with deduplication
   notifyProximity(distanceKm: number, driverName?: string): void {
     if (distanceKm <= 0.5 && distanceKm > 0.3) {
+      const key = 'proximity_500m';
+      if (this.isDuplicate(key, 10000)) return; // 10 second cooldown
+      
       this.showToast('warning', '🚗 Driver Nearby', `${driverName || 'Your driver'} is less than 500m away!`, {
         duration: 5000,
         sound: true,
       });
       this.showPushNotification('Driver Nearby', `${driverName || 'Your driver'} is approaching your location`);
     } else if (distanceKm <= 0.3) {
+      const key = 'proximity_300m';
+      if (this.isDuplicate(key, 10000)) return; // 10 second cooldown
+      
       this.showToast('warning', '📍 Driver Arriving', `${driverName || 'Your driver'} is arriving now!`, {
         duration: 7000,
         sound: true,
@@ -243,8 +266,11 @@ class NotificationService {
     }
   }
 
-  // Geofence notifications
+  // Geofence notifications with deduplication
   notifyGeofenceEvent(eventType: 'entered' | 'approaching', zoneType: 'pickup' | 'destination', zoneName?: string): void {
+    const key = `geofence_${zoneType}_${eventType}`;
+    if (this.isDuplicate(key, 8000)) return; // 8 second cooldown
+
     const messages = {
       pickup: {
         entered: {
