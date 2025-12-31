@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-google-maps/api';
+import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api';
+import { useMapsContext } from '@/components/MapsProvider';
 import axios from 'axios';
 
 const mapContainerStyle = {
@@ -10,9 +11,7 @@ const mapContainerStyle = {
 };
 
 export default function DemoPage() {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '',
-  });
+  const { isLoaded } = useMapsContext();
 
   const [pickupLocation, setPickupLocation] = useState({ lat: 17.385044, lng: 78.486671 });
   const [deliveryLocation, setDeliveryLocation] = useState({ lat: 17.440826, lng: 78.348449 });

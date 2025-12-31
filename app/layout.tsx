@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { MapsProvider } from '@/components/MapsProvider';
 
 export const metadata: Metadata = {
   title: 'ExtraHand Live Tracking',
@@ -13,7 +14,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <MapsProvider>
+          {children}
+        </MapsProvider>
+      </body>
     </html>
   );
 }

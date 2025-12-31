@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { GoogleMap, useJsApiLoader, Marker, Polyline, DirectionsRenderer } from '@react-google-maps/api';
+import { GoogleMap, Marker, Polyline, DirectionsRenderer } from '@react-google-maps/api';
+import { useMapsContext } from '@/components/MapsProvider';
 import axios from 'axios';
 
 const mapContainerStyle = {
@@ -14,14 +15,12 @@ export default function AgentNavigationPage() {
   const params = useParams();
   const taskId = params?.taskId as string;
 
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '',
-    libraries: ['places'] as any,
-  });
+  const { isLoaded } = useMapsContext();
 
   const [taskData, setTaskData] = useState<any>(null);
   const [currentLocation, setCurrentLocation] = useState<any>(null);
-  const [mapCenter, setMapCenter] = useState<any>(null); // FIXED: Stable map center
+  const [mapCenter, setMapCenter] = useState<any>({ lat: 0, lng: 0 }); // FIXED: Initialize with default
+  const [mapInitialized, setMapInitialized] = useState(false); // Track if map center is set
   const [directions, setDirections] = useState<any>(null);
   const [distance, setDistance] = useState('');
   const [eta, setEta] = useState('');
@@ -56,9 +55,10 @@ export default function AgentNavigationPage() {
               console.log('📍 AGENT: Starting from current GPS location', agentLocation);
               setCurrentLocation(agentLocation);
               
-              // Set map center ONCE on initial load
-              if (!mapCenter) {
+              // Set map center ONCE on initial load - LOCKED after first set
+              if (!mapInitialized) {
                 setMapCenter(agentLocation);
+                setMapInitialized(true);
               }
             },
             (error) => {
@@ -66,8 +66,9 @@ export default function AgentNavigationPage() {
               console.warn('⚠️ GPS failed, using pickup location as fallback', error);
               const fallbackLocation = response.data.pickup;
               setCurrentLocation(fallbackLocation);
-              if (!mapCenter) {
+              if (!mapInitialized) {
                 setMapCenter(fallbackLocation);
+                setMapInitialized(true);
               }
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -76,15 +77,21 @@ export default function AgentNavigationPage() {
           // No geolocation support - use pickup as fallback
           const fallbackLocation = response.data.pickup;
           setCurrentLocation(fallbackLocation);
-          if (!mapCenter) {
+          if (!mapInitialized) {
             setMapCenter(fallbackLocation);
+            setMapInitialized(true);
           }
         }
         
-        // Check if pickup already verified
-        if (response.data.status === 'PICKED_UP' || response.data.status === 'ON_THE_WAY' || response.data.status === 'ARRIVING') {
+        // CRITICAL FIX: Don't auto-verify pickup based on status!
+        // OTP must be entered manually by agent at pickup location
+        // Only set isPickupVerified to true if status is explicitly 'PICKED_UP' after OTP verification
+        // or if already completed the pickup leg
+        if (response.data.status === 'COMPLETED') {
           setIsPickupVerified(true);
         }
+        // NOTE: For all other statuses (PENDING, ON_THE_WAY, ARRIVING), 
+        // agent MUST verify OTP at pickup before proceeding
         
         // Store OTP for verification (but don't display to agent)
         if (response.data.deliveryOTP) {
@@ -100,62 +107,78 @@ export default function AgentNavigationPage() {
     }
   }, [taskId]);
 
-  // Calculate route
+  // Calculate route - FIXED: Route should go through PICKUP first, then DESTINATION
   const calculateRoute = useCallback(async () => {
     if (!taskData || !currentLocation || !window.google) return;
 
     const directionsService = new google.maps.DirectionsService();
 
     try {
+      // CRITICAL FIX: Add waypoint at PICKUP location before going to destination
+      const waypoints = !isPickupVerified ? [
+        {
+          location: taskData.pickup,
+          stopover: true // Must stop at pickup to verify OTP
+        }
+      ] : [];
+
       const result = await directionsService.route({
         origin: currentLocation,
         destination: taskData.destination,
+        waypoints: waypoints, // Route through pickup FIRST if not verified
         travelMode: google.maps.TravelMode.DRIVING,
-        optimizeWaypoints: true,
+        optimizeWaypoints: false, // Don't optimize - maintain pickup order!
       });
 
       setDirections(result);
       
-      // Extract distance and duration
+      // Extract distance and duration from FIRST leg (to pickup or destination)
       const leg = result.routes[0].legs[0];
       setDistance(leg.distance?.text || '');
       setEta(leg.duration?.text || '');
 
-      // Extract route points for simulation
+      // Extract route points for simulation from ALL legs
       const points: Array<{lat: number, lng: number}> = [];
-      leg.steps.forEach((step: any) => {
-        // Get lat/lng points from step
-        if (step.lat_lngs && step.lat_lngs.length > 0) {
-          step.lat_lngs.forEach((point: any) => {
-            points.push({ lat: point.lat(), lng: point.lng() });
-          });
-        } else if (step.start_location && step.end_location) {
-          // Fallback: use start and end of each step
+      result.routes[0].legs.forEach((leg: any) => {
+        leg.steps.forEach((step: any) => {
+          // Get lat/lng points from step
+          if (step.lat_lngs && step.lat_lngs.length > 0) {
+            step.lat_lngs.forEach((point: any) => {
+              points.push({ lat: point.lat(), lng: point.lng() });
+            });
+          } else if (step.start_location && step.end_location) {
+            // Fallback: use start and end of each step
+            points.push({ 
+              lat: step.start_location.lat(), 
+              lng: step.start_location.lng() 
+            });
+          }
+        });
+        // Add end of each leg
+        if (leg.end_location) {
           points.push({ 
-            lat: step.start_location.lat(), 
-            lng: step.start_location.lng() 
+            lat: leg.end_location.lat(), 
+            lng: leg.end_location.lng() 
           });
         }
       });
-      // Add final destination
-      if (leg.end_location) {
-        points.push({ 
-          lat: leg.end_location.lat(), 
-          lng: leg.end_location.lng() 
-        });
-      }
-      console.log(`Route extracted: ${points.length} waypoints`);
+      
+      console.log(`🗺️ Route extracted: ${points.length} waypoints, through ${result.routes[0].legs.length} legs`, {
+        hasPickupWaypoint: !isPickupVerified,
+        pickup: taskData.pickup,
+        destination: taskData.destination
+      });
       setRoutePoints(points);
     } catch (error) {
       console.error('Error calculating route:', error);
     }
-  }, [taskData, currentLocation]);
+  }, [taskData, currentLocation, isPickupVerified]);
 
   useEffect(() => {
     if (isLoaded && taskData && currentLocation) {
       calculateRoute();
     }
-  }, [isLoaded, taskData, currentLocation, calculateRoute]);
+  }, [isLoaded, taskData, currentLocation, isPickupVerified, calculateRoute]); // Re-calculate when pickup verified
 
   // Real GPS tracking
   const startRealGPS = () => {
@@ -172,6 +195,20 @@ export default function AgentNavigationPage() {
         const { latitude, longitude, speed } = position.coords;
         const newLocation = { lat: latitude, lng: longitude };
         setCurrentLocation(newLocation);
+
+        // ADDED: Check if arrived at PICKUP location (if not verified yet)
+        if (!isPickupVerified && taskData?.pickup) {
+          const distanceToPickup = getDistance(newLocation, taskData.pickup);
+          console.log(`📍 Real GPS - Distance to pickup: ${distanceToPickup.toFixed(3)} km`);
+          
+          // If within 50 meters of pickup, pause and show OTP prompt
+          if (distanceToPickup < 0.05) {
+            console.log('✅ Real GPS - Arrived at PICKUP location - Showing OTP verification');
+            stopNavigation(); // Pause GPS tracking
+            // OTP form will automatically show in right panel because isPickupVerified is false
+            return;
+          }
+        }
 
         // Send update to server
         try {
@@ -192,9 +229,11 @@ export default function AgentNavigationPage() {
           console.error('Error updating location:', error);
         }
 
-        // Check if arrived
-        if (taskData) {
+        // Check if arrived at DESTINATION (only if pickup verified)
+        if (isPickupVerified && taskData) {
           const distanceToDestination = getDistance(newLocation, taskData.destination);
+          console.log(`📍 Real GPS - Distance to destination: ${distanceToDestination.toFixed(3)} km`);
+          
           if (distanceToDestination < 0.1) {
             stopNavigation();
             setShowCompleteModal(true);
@@ -241,8 +280,32 @@ export default function AgentNavigationPage() {
 
         setCurrentLocation(newLocation);
 
-        // Send update to server - THROTTLED to every 5 updates for better performance
-        if (nextIndex % 5 === 0) {
+        // Check if arrived at PICKUP location (if not verified yet)
+        if (!isPickupVerified && taskData.pickup) {
+          const distanceToPickup = getDistance(newLocation, taskData.pickup);
+          console.log(`📍 Distance to pickup: ${distanceToPickup.toFixed(3)} km`);
+          
+          // If within 50 meters of pickup, pause and show OTP prompt
+          if (distanceToPickup < 0.05) {
+            console.log('✅ Arrived at PICKUP location - Showing OTP verification');
+            stopNavigation(); // Pause simulation
+            // OTP overlay will automatically show because isPickupVerified is false
+            return prevIndex; // Stop moving
+          }
+        }
+
+        // Check if arrived at DESTINATION (only if pickup verified)
+        if (isPickupVerified && taskData.destination) {
+          const distanceToDestination = getDistance(newLocation, taskData.destination);
+          if (distanceToDestination < 0.05) {
+            stopNavigation();
+            setShowCompleteModal(true);
+            return prevIndex;
+          }
+        }
+
+        // Send update to server - IMPROVED: Every 2 updates for better real-time experience
+        if (nextIndex % 2 === 0) {
           axios.post('/api/driver/update', {
             taskId,
             driverId: taskData.driver?.id || 'agent_001',
@@ -261,7 +324,7 @@ export default function AgentNavigationPage() {
 
         return nextIndex;
       });
-    }, 800); // INCREASED from 1500ms to 800ms but with 1-point movement = smoother
+    }, 500); // IMPROVED: 500ms with 1-point movement = smoother and faster updates
   };
 
   // Stop navigation
@@ -302,7 +365,17 @@ export default function AgentNavigationPage() {
       });
 
       setIsPickupVerified(true);
-      alert('✅ Pickup verified! You can now start the journey to destination.');
+      alert('✅ Pickup verified! You can now proceed to the destination.');
+      
+      // If Real GPS, automatically restart tracking
+      if (useRealGPS) {
+        setTimeout(() => {
+          startRealGPS();
+        }, 1000);
+      }
+      // If simulation, user needs to click Start again to continue to destination
+      
+      // Route will automatically recalculate via useEffect when isPickupVerified changes
     } catch (error) {
       console.error('Error verifying pickup:', error);
       alert('❌ Failed to verify pickup. Please try again.');
@@ -366,80 +439,99 @@ export default function AgentNavigationPage() {
     );
   }
 
-  return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-green-50 to-emerald-50">
-      {/* REMOVED: OTP Display Banner - Agent should NOT see OTP */}
-      {/* OTP is for customer to tell agent verbally at pickup location */}
+  // ✅ FIXED: Show completed screen if delivery is already done
+  if (taskData.status === 'COMPLETED') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full border-4 border-green-400 text-center">
+          <div className="text-6xl mb-4 animate-bounce">✅</div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">Delivery Completed!</h2>
+          <p className="text-gray-600 mb-6">You have successfully delivered this package</p>
+          
+          <div className="bg-green-50 rounded-lg p-4 mb-6 border-2 border-green-200">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="text-gray-600">Order ID:</span>
+              <span className="font-semibold">#{taskId?.slice(-8)}</span>
+            </div>
+            {taskData.completedAt && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Completed at:</span>
+                <span className="font-semibold">
+                  {new Date(taskData.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            )}
+          </div>
 
-      {/* Enhanced Header */}
-      <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-4 shadow-lg">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-white/20 p-2 rounded-lg">
-              <span className="text-2xl">🧭</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">Active Delivery</h1>
-              <p className="text-sm text-green-100">Delivering: {taskData.item || 'Package'}</p>
-            </div>
-          </div>
-          <div className="text-right bg-white/20 px-4 py-2 rounded-lg">
-            <p className="text-2xl font-bold">{eta}</p>
-            <p className="text-xs text-green-100">{distance} away</p>
-          </div>
+          <button
+            onClick={() => window.location.href = '/agent'}
+            className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold transition-colors shadow-lg hover:shadow-xl"
+          >
+            Back to Dashboard
+          </button>
         </div>
       </div>
+    );
+  }
 
-      {/* Map - FIXED: Stable center to prevent flickering */}
-      <div className="flex-1 relative">
-        {/* PICKUP OTP VERIFICATION OVERLAY - Shows when not verified */}
-        {!isPickupVerified && (
-          <div className="absolute top-4 left-0 right-0 mx-4 bg-white rounded-xl shadow-2xl p-5 z-50 border-4 border-blue-500 animate-pulse-slow">
-            <h3 className="font-bold text-xl mb-2 text-gray-900">📍 Arrived at Pickup Location?</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Ask the customer to tell you the 4-digit OTP verbally, then enter it below to verify pickup.
-            </p>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                maxLength={4}
-                value={pickupOTP}
-                onChange={(e) => setPickupOTP(e.target.value.replace(/\D/g, ''))}
-                placeholder="Enter 4-digit OTP"
-                className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg text-center text-3xl font-bold tracking-widest focus:border-blue-500 focus:outline-none"
-              />
-              <button
-                onClick={verifyPickupOTP}
-                disabled={pickupOTP.length < 4}
-                className={`bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors ${
-                  pickupOTP.length < 4 ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                Verify
-              </button>
+  return (
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Modern Header with Gradient */}
+      <header className="bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white shadow-xl">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="bg-white/20 backdrop-blur-sm p-3 rounded-xl">
+                <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">Active Delivery</h1>
+                <p className="text-emerald-100 text-sm font-medium">
+                  {taskData.item || 'Package'} • Order #{taskId?.slice(-8)}
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-gray-500 mt-3 text-center">
-              🔒 Customer has the OTP on their tracking screen
-            </p>
+            <div className="flex items-center space-x-4">
+              <div className="text-right">
+                <p className="text-3xl font-bold">{eta || 'Calculating...'}</p>
+                <p className="text-emerald-100 text-sm">{distance || '--'} away</p>
+              </div>
+              {!isPickupVerified && (
+                <div className="bg-amber-400 text-amber-900 px-4 py-2 rounded-xl font-bold text-sm animate-pulse">
+                  🔒 Pickup OTP Required
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        </div>
+      </header>
 
-        <GoogleMap
-          key={`map-${taskId}`}
-          mapContainerStyle={mapContainerStyle}
-          center={mapCenter || currentLocation}
-          zoom={14}
-          onLoad={(map) => { mapRef.current = map; }}
-          options={{
-            zoomControl: true,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: true,
-            disableDefaultUI: false,
-            keyboardShortcuts: true,
-            gestureHandling: 'greedy',
-          }}
-        >
+      {/* Main Content - Two Column Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Side - Map (70%) */}
+        <div className="flex-1 relative">
+          <GoogleMap
+            key={`map-${taskId}`}
+            mapContainerStyle={mapContainerStyle}
+            center={mapCenter}
+            zoom={14}
+            onLoad={(map) => { mapRef.current = map; }}
+            options={{
+              zoomControl: true,
+              mapTypeControl: false,
+              streetViewControl: false,
+              fullscreenControl: true,
+              disableDefaultUI: false,
+              keyboardShortcuts: true,
+              gestureHandling: 'greedy',
+              disableDoubleClickZoom: false,
+              draggable: true,
+              scrollwheel: true,
+              panControl: false,
+            }}
+          >
           {/* Pickup Marker */}
           <Marker
             key={`pickup-${taskId}`}
@@ -456,10 +548,10 @@ export default function AgentNavigationPage() {
             title="Pickup Location"
           />
 
-          {/* Current Location - NO ANIMATION to prevent flicker */}
+          {/* Current Location - STABLE KEY to prevent re-creation */}
           {currentLocation && (
             <Marker
-              key={`current-${currentLocation.lat}-${currentLocation.lng}`}
+              key={`agent-marker-${taskId}`}
               position={currentLocation}
               icon={{
                 url: 'data:image/svg+xml;base64,' + btoa(`
@@ -506,135 +598,294 @@ export default function AgentNavigationPage() {
             />
           )}
         </GoogleMap>
-      </div>
+        </div>
 
-      {/* Bottom Controls */}
-      <div className="bg-white border-t-2 border-gray-200 p-4 shadow-2xl">
-        <div className="max-w-4xl mx-auto">
-          {/* Stats Grid */}
-          <div className="grid grid-cols-3 gap-3 mb-4 text-center">
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-3 border-2 border-blue-300 shadow-sm">
-              <p className="text-xs text-blue-700 font-semibold mb-1">DISTANCE</p>
-              <p className="text-lg font-bold text-blue-600">{distance}</p>
-            </div>
-            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-3 border-2 border-green-300 shadow-sm">
-              <p className="text-xs text-green-700 font-semibold mb-1">ETA</p>
-              <p className="text-lg font-bold text-green-600">{eta}</p>
-            </div>
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-3 border-2 border-purple-300 shadow-sm">
-              <p className="text-xs text-purple-700 font-semibold mb-1">STATUS</p>
-              <p className="text-lg font-bold text-purple-600">
-                {isNavigating ? '🚗 Moving' : '⏸️ Ready'}
-              </p>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
-            {!isPickupVerified && (
-              <div className="bg-orange-100 border-2 border-orange-400 rounded-xl p-4 text-center">
-                <p className="text-orange-800 font-bold">🔒 Verify pickup OTP first to start navigation</p>
+        {/* Right Side Panel - Controls & Info (30%) */}
+        <div className="w-96 bg-white border-l border-gray-200 flex flex-col overflow-y-auto shadow-2xl">
+          {/* OTP Verification Section - Prominent when needed */}
+          {!isPickupVerified && (
+            <div className="bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 p-6 text-white">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="bg-white/20 p-3 rounded-xl animate-pulse">
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold">Pickup Verification Required</h3>
+                  <p className="text-blue-100 text-sm">Enter OTP from customer</p>
+                </div>
               </div>
-            )}
-            <div className="flex space-x-3">
+              
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 mb-3">
+                <p className="text-sm mb-3 text-blue-50">
+                  📱 Ask the customer to tell you their 4-digit OTP verbally
+                </p>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={pickupOTP}
+                  onChange={(e) => setPickupOTP(e.target.value.replace(/\D/g, ''))}
+                  placeholder="0 0 0 0"
+                  className="w-full px-4 py-4 border-2 border-white/30 bg-white/20 backdrop-blur-sm rounded-xl text-center text-4xl font-bold tracking-[0.5em] text-white placeholder-white/40 focus:border-white focus:bg-white/30 focus:outline-none transition-all"
+                />
+              </div>
+              
               <button
-                onClick={startRealGPS}
-                disabled={!isPickupVerified || isNavigating}
-                className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${
-                  !isPickupVerified || isNavigating
-                    ? 'bg-gray-400 cursor-not-allowed text-white'
-                    : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl'
+                onClick={verifyPickupOTP}
+                disabled={pickupOTP.length < 4}
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
+                  pickupOTP.length < 4
+                    ? 'bg-white/20 text-white/50 cursor-not-allowed'
+                    : 'bg-white text-blue-600 hover:bg-blue-50 shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
                 }`}
               >
-                {!isPickupVerified ? '🔒 Real GPS' : '📍 Real GPS'}
+                {pickupOTP.length < 4 ? '🔒 Enter 4 digits' : '✅ Verify & Continue'}
               </button>
-              <button
-                onClick={startSimulation}
-                disabled={!isPickupVerified || isNavigating}
-                className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${
-                  !isPickupVerified || isNavigating
-                    ? 'bg-gray-400 cursor-not-allowed text-white'
-                    : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-lg hover:shadow-xl'
-                }`}
-              >
-                {!isPickupVerified ? '🔒 Simulate' : '🚀 Simulate'}
-              </button>
-            </div>
-            {isNavigating && (
-              <button
-                onClick={stopNavigation}
-                className="w-full py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition-colors"
-              >
-                ⏸️ Stop Navigation
-              </button>
-            )}
-            <button
-              onClick={() => setShowCompleteModal(true)}
-              disabled={isNavigating}
-              className="w-full py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-bold hover:from-purple-600 hover:to-purple-700 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed transition-all"
-            >
-              ✅ Complete Delivery
-            </button>
-          </div>
-
-          {/* Customer Info */}
-          {taskData.customer && (
-            <div className="mt-3 bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
-              <p className="text-sm text-blue-800">
-                <strong>👤 Customer:</strong> {taskData.customer.name} • {taskData.customer.phone}
+              
+              <p className="text-xs text-blue-100 mt-3 text-center">
+                Customer sees this OTP on their tracking screen
               </p>
             </div>
           )}
 
-          {/* Tip */}
-          <div className="mt-3 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
-            <p className="text-sm text-yellow-800">
-              <strong>💡 Tip:</strong> Click "Start Navigation" to simulate real-time movement to the destination.
-            </p>
+          {/* Stats Cards */}
+          <div className="p-4 space-y-3">
+            <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-4 border-2 border-emerald-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-emerald-700 font-semibold mb-1">ESTIMATED TIME</p>
+                  <p className="text-2xl font-bold text-emerald-600">{eta || 'Calculating...'}</p>
+                </div>
+                <div className="bg-emerald-100 p-3 rounded-xl">
+                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-blue-700 font-semibold mb-1">DISTANCE</p>
+                  <p className="text-2xl font-bold text-blue-600">{distance || 'Calculating...'}</p>
+                </div>
+                <div className="bg-blue-100 p-3 rounded-xl">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className={`rounded-xl p-4 border-2 ${
+              isNavigating 
+                ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-200'
+                : 'bg-gradient-to-br from-gray-50 to-slate-50 border-gray-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold mb-1 ${
+                    isNavigating ? 'text-green-700' : 'text-gray-700'
+                  }">STATUS</p>
+                  <p className={`text-2xl font-bold ${
+                    isNavigating ? 'text-green-600' : 'text-gray-600'
+                  }`}>
+                    {isNavigating ? '🚗 Navigating' : '⏸️ Paused'}
+                  </p>
+                </div>
+                <div className={`p-3 rounded-xl ${
+                  isNavigating ? 'bg-green-100' : 'bg-gray-100'
+                }`}>
+                  <svg className={`w-6 h-6 ${
+                    isNavigating ? 'text-green-600 animate-pulse' : 'text-gray-600'
+                  }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation Controls */}
+          <div className="p-4 space-y-3">
+            <div className="flex space-x-3">
+              <button
+                onClick={startRealGPS}
+                disabled={isNavigating}
+                className={`flex-1 py-4 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                  isNavigating
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 hover:shadow-xl transform hover:scale-[1.02]'
+                }`}
+              >
+                <div className="flex flex-col items-center">
+                  <svg className="w-5 h-5 mb-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                  </svg>
+                  Real GPS
+                </div>
+              </button>
+              <button
+                onClick={startSimulation}
+                disabled={isNavigating}
+                className={`flex-1 py-4 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                  isNavigating
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-emerald-500 to-green-600 text-white hover:from-emerald-600 hover:to-green-700 hover:shadow-xl transform hover:scale-[1.02]'
+                }`}
+              >
+                <div className="flex flex-col items-center">
+                  <svg className="w-5 h-5 mb-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                  </svg>
+                  Simulate
+                </div>
+              </button>
+            </div>
+
+            {isNavigating && (
+              <button
+                onClick={stopNavigation}
+                className="w-full py-4 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-bold hover:from-red-600 hover:to-red-700 transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
+              >
+                <div className="flex items-center justify-center space-x-2">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <span>Stop Navigation</span>
+                </div>
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowCompleteModal(true)}
+              disabled={isNavigating}
+              className="w-full py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-bold hover:from-purple-600 hover:to-purple-700 shadow-lg disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:shadow-none transition-all hover:shadow-xl transform hover:scale-[1.02]"
+            >
+              <div className="flex items-center justify-center space-x-2">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <span>Complete Delivery</span>
+              </div>
+            </button>
+          </div>
+
+          {/* Customer Info Card */}
+          {taskData.customer && (
+            <div className="mx-4 mb-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border-2 border-amber-200">
+              <div className="flex items-start space-x-3">
+                <div className="bg-amber-100 p-2 rounded-lg">
+                  <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-amber-700 font-semibold mb-1">CUSTOMER DETAILS</p>
+                  <p className="text-sm font-bold text-amber-900">{taskData.customer.name}</p>
+                  <p className="text-sm text-amber-700">{taskData.customer.phone}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Route Info */}
+          <div className="mx-4 mb-4 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl p-4 border-2 border-indigo-200">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-3">
+                <div className="bg-amber-100 p-2 rounded-lg">
+                  <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-indigo-600 font-semibold">PICKUP</p>
+                  <p className="text-sm text-indigo-900 font-medium">{taskData.pickup?.address || 'Pickup Location'}</p>
+                </div>
+              </div>
+              <div className="ml-5 border-l-2 border-indigo-200 h-6"></div>
+              <div className="flex items-center space-x-3">
+                <div className="bg-red-100 p-2 rounded-lg">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-indigo-600 font-semibold">DESTINATION</p>
+                  <p className="text-sm text-indigo-900 font-medium">{taskData.destination?.address || 'Destination'}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Complete Delivery Modal - PHOTO ONLY (No OTP at delivery) */}
+      {/* Complete Delivery Modal - Enhanced Design */}
       {showCompleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">🎯 Arrived at Destination</h2>
-
-            <div className="bg-green-50 border-l-4 border-green-400 p-4 mb-4 rounded">
-              <p className="text-sm text-green-800">
-                <strong>✅ Pickup Verified:</strong> Customer OTP was confirmed at pickup location
-              </p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 transform transition-all">
+            <div className="text-center mb-6">
+              <div className="bg-gradient-to-br from-green-100 to-emerald-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Arrived at Destination</h2>
+              <p className="text-gray-600">Complete the delivery process</p>
             </div>
 
-            <div className="mb-4">
-              <div className="bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-8 border-2 border-dashed border-gray-400 text-center">
-                <div className="text-5xl mb-3">📸</div>
-                <p className="text-gray-600 font-semibold">Take Photo of Delivery</p>
-                <p className="text-xs text-gray-500 mt-2">In production: Camera capture</p>
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-4 mb-6">
+              <div className="flex items-center space-x-3">
+                <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-green-900">Pickup Verified</p>
+                  <p className="text-xs text-green-700">Customer OTP confirmed at pickup location</p>
+                </div>
               </div>
             </div>
 
-            <div className="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4 rounded">
-              <p className="text-sm text-blue-800">
-                <strong>📌 Location:</strong> {taskData.destination?.address || 'Destination'}
-              </p>
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-3">Proof of Delivery</label>
+              <div className="bg-gradient-to-br from-gray-50 to-slate-50 rounded-xl p-8 border-2 border-dashed border-gray-300 hover:border-gray-400 transition-colors cursor-pointer text-center">
+                <svg className="w-16 h-16 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <p className="text-gray-700 font-semibold mb-1">Take Photo of Package</p>
+                <p className="text-xs text-gray-500">Production: Camera capture will activate</p>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-4 mb-6">
+              <div className="flex items-start space-x-3">
+                <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-blue-900 mb-1">DELIVERY LOCATION</p>
+                  <p className="text-sm text-blue-700">{taskData.destination?.address || 'Destination Address'}</p>
+                </div>
+              </div>
             </div>
 
             <div className="flex space-x-3">
               <button
-                onClick={() => {
-                  setShowCompleteModal(false);
-                }}
-                className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                onClick={() => setShowCompleteModal(false)}
+                className="flex-1 py-4 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCompleteDelivery}
-                className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-bold hover:from-green-600 hover:to-emerald-700 transition-all shadow-lg"
+                className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:from-green-600 hover:to-emerald-700 transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
               >
-                ✅ Confirm Delivery
+                <div className="flex items-center justify-center space-x-2">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span>Confirm Delivery</span>
+                </div>
               </button>
             </div>
           </div>

@@ -49,6 +49,8 @@ export default function TrackingPage() {
   const [isPulling, setIsPulling] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartRef = useRef(0);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+  const [updatePulse, setUpdatePulse] = useState(false);
 
   // Initialize WebSocket/Polling
   useSocket(taskId);
@@ -169,6 +171,11 @@ export default function TrackingPage() {
         eta: trackingData.eta,
         timestamp: new Date().toISOString()
       });
+      
+      // Visual feedback for updates
+      setLastUpdateTime(new Date());
+      setUpdatePulse(true);
+      setTimeout(() => setUpdatePulse(false), 1000);
     }
   }, [trackingData?.currentLocation, trackingData?.status, trackingData?.eta]);
 
@@ -210,6 +217,7 @@ export default function TrackingPage() {
           driver: data.driver,
           distance: data.distance,
           duration: data.duration,
+          proofOfDelivery: data.proofOfDelivery, // ✅ FIXED: Include POD for completed status
         });
 
         // Store OTP if available
@@ -294,7 +302,8 @@ export default function TrackingPage() {
   }
 
   // Show delivery completed celebration
-  if (trackingData.status === 'COMPLETED' && trackingData.proofOfDelivery) {
+  // ✅ FIXED: Don't require proofOfDelivery - just check status
+  if (trackingData.status === 'COMPLETED') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full border-4 border-green-400 text-center">
@@ -420,6 +429,23 @@ export default function TrackingPage() {
         </div>
       )}
 
+      {/* Real-Time Update Indicator */}
+      <div className={`fixed top-16 right-4 z-50 transition-all duration-300 ${
+        updatePulse ? 'scale-110 opacity-100' : 'scale-100 opacity-70'
+      }`}>
+        <div className="bg-white rounded-full shadow-lg px-4 py-2 border-2 border-green-400 flex items-center space-x-2">
+          <div className={`w-3 h-3 rounded-full ${
+            isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+          }`}></div>
+          <span className="text-xs font-bold text-gray-700">
+            {isConnected ? 'Live' : 'Offline'}
+          </span>
+          <span className="text-xs text-gray-500">
+            {lastUpdateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </span>
+        </div>
+      </div>
+
       {/* Enhanced Header */}
       <EnhancedTrackingHeader
         taskId={taskId}
@@ -457,7 +483,7 @@ export default function TrackingPage() {
                 </p>
               </div>
             </div>
-            {trackingData.remainingDistance && (
+            {trackingData.remainingDistance && trackingData.status !== 'COMPLETED' && (
               <div className="hidden md:flex items-center space-x-4">
                 <div className="text-right">
                   <p className="text-xs text-gray-800">Distance</p>
@@ -497,7 +523,15 @@ export default function TrackingPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Map Section */}
             <div className="lg:col-span-2">
-              <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-4 border-yellow-400" style={{ height: '600px' }}>
+              <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-4 border-yellow-400 relative" style={{ height: '600px' }}>
+                {/* Live Update Badge on Map */}
+                <div className="absolute top-4 left-4 z-10 bg-black/80 text-white rounded-full px-4 py-2 text-xs font-bold flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
+                  }`}></div>
+                  <span>{isConnected ? '🟢 LIVE TRACKING' : '🔴 OFFLINE'}</span>
+                </div>
+                
                 {/* FIXED: Ensure LiveMap gets real-time location updates */}
                 <LiveMap
                   pickup={trackingData.pickup}
@@ -525,7 +559,7 @@ export default function TrackingPage() {
               )}
 
               <StatusPanel
-                status={trackingData.status}
+                status={trackingData.status as any}
                 eta={trackingData.eta}
                 distance={trackingData.remainingDistance || trackingData.distance}
               />
@@ -534,7 +568,7 @@ export default function TrackingPage() {
                 speed={trackingData.speed}
                 remainingDistance={trackingData.remainingDistance}
                 currentStreet={trackingData.currentStreet}
-                traffic={trackingData.traffic}
+                traffic={trackingData.traffic as any}
               />
 
               {/* Geofence Status */}
@@ -561,7 +595,7 @@ export default function TrackingPage() {
 
               {trackingData.driver ? (
                 <DriverCard
-                  driver={trackingData.driver}
+                  driver={trackingData.driver as any}
                   isConnected={isConnected}
                 />
               ) : (

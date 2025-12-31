@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { Autocomplete, useJsApiLoader } from '@react-google-maps/api';
+import { Autocomplete } from '@react-google-maps/api';
+import { useMapsContext } from '@/components/MapsProvider';
 
 interface Location {
   lat: number;
@@ -18,8 +19,6 @@ interface LocationNavbarProps {
   onCityChange?: (city: string) => void;
 }
 
-const libraries: ("places" | "geometry" | "drawing")[] = ["places"];
-
 export default function LocationNavbar({
   pickupLocation,
   dropLocation,
@@ -28,10 +27,7 @@ export default function LocationNavbar({
   city = 'Hyderabad',
   onCityChange,
 }: LocationNavbarProps) {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '',
-    libraries,
-  });
+  const { isLoaded } = useMapsContext();
 
   const [showCityModal, setShowCityModal] = useState(false);
   const pickupAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);

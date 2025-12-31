@@ -1,29 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { driverUpdateSchema } from '@/lib/validation';
-import { storeTaskLocation, publishLocationUpdate, getTaskData } from '@/lib/redis';
-import { calculateETA, haversineDistance, determineTaskStatus } from '@/lib/eta';
-import { storeLocationHistory } from '@/lib/database';
-import { TaskStatus } from '@/types';
+import redis from '@/lib/redis';
+import { calculateETA, haversineDistance } from '@/lib/eta';
+import { publishLocationUpdate } from '@/lib/redis';
+import { connectToDatabase } from '@/lib/database';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
-    // Validate input
-    const validationResult = driverUpdateSchema.safeParse(body);
-    
-    if (!validationResult.success) {
+    const { taskId, driverId, lat, lng, speed, timestamp } = body;
+
+    // Validate required fields
+    if (!taskId || !driverId || lat === undefined || lng === undefined) {
       return NextResponse.json(
-        { error: 'Validation failed', details: validationResult.error.issues },
+        { error: 'Missing required fields: taskId, driverId, lat, lng' },
         { status: 400 }
       );
     }
 
-    const { taskId, driverId, lat, lng, speed, timestamp } = validationResult.data;
+    console.log('📍 DRIVER UPDATE:', { taskId, driverId, lat, lng, speed });
 
-    // Get task data (pickup, destination)
-    const taskData = await getTaskData(taskId);
-    
+    // Get task data from Redis
+    const taskData = await redis.get(`task:${taskId}:data`);
     if (!taskData) {
       return NextResponse.json(
         { error: 'Task not found' },
@@ -31,81 +28,102 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { destination, driver } = taskData;
+    const task = typeof taskData === 'string' ? JSON.parse(taskData) : taskData;
 
-    // Calculate ETA (recalculate on every update for real-time accuracy)
-    const etaResult = await calculateETA(
-      { lat, lng },
-      destination,
-      speed > 0 ? speed : undefined
-    );
+    // Determine current status based on location
+    const currentLocation = { lat, lng };
+    let status = task.status || 'ON_THE_WAY';
 
-    // Determine status based on distance
-    const distanceToDestination = haversineDistance({ lat, lng }, destination);
-    const distanceToPickup = haversineDistance({ lat, lng }, taskData.pickup);
-    let status: TaskStatus = taskData.status || 'ON_THE_WAY';
+    // Check if near pickup (within 100m) - set to PICKED_UP or ON_THE_WAY
+    const distanceToPickup = haversineDistance(currentLocation, task.pickup);
+    
+    // Check if near destination (within 100m)
+    const distanceToDestination = haversineDistance(currentLocation, task.destination);
 
-    // Update status based on location and current status
-    if (status === 'PENDING') {
-      // Agent hasn't picked up yet
-      if (distanceToPickup < 0.1) {
-        status = 'PICKED_UP'; // At pickup, ready to collect
-      }
-    } else if (status === 'PICKED_UP' || status === 'ON_THE_WAY') {
-      // Agent has picked up, moving to destination
-      if (distanceToDestination < 0.1) {
-        status = 'ARRIVING'; // Very close to destination
-      } else {
-        status = 'ON_THE_WAY'; // En route
-      }
+    // Status logic
+    if (status === 'PENDING' && distanceToPickup < 0.1) {
+      status = 'PICKED_UP';
+    } else if (status === 'PICKED_UP' && distanceToPickup > 0.1) {
+      status = 'ON_THE_WAY';
+    } else if (distanceToDestination < 0.2) {
+      status = 'ARRIVING';
     }
-    // If status is already ARRIVING or COMPLETED, keep it unchanged
 
-    // Prepare location update
-    const locationUpdate = {
+    // Calculate ETA and distance to destination
+    const etaResult = await calculateETA(currentLocation, task.destination);
+    const eta = etaResult.eta;
+    const distance = etaResult.distance;
+    const duration = etaResult.duration;
+
+    // Prepare location data for Redis and broadcast
+    const locationData = {
       taskId,
       driverId,
       lat,
       lng,
-      speed,
-      timestamp,
+      speed: speed || 0,
+      timestamp: timestamp || Date.now(),
       status,
-      eta: etaResult.eta,
-      distance: etaResult.distance,
-      duration: etaResult.duration,
-      driver,
+      eta,
+      distance,
+      duration,
+      driver: task.driver,
     };
 
-    // Store in Redis (live state)
-    await storeTaskLocation(taskId, locationUpdate);
+    // Save to Redis (ephemeral - for real-time tracking)
+    await redis.set(`task:${taskId}:location`, locationData, { ex: 86400 }); // 24 hour TTL
 
-    // Publish to WebSocket subscribers
-    await publishLocationUpdate(taskId, locationUpdate);
-
-    // Store in MongoDB for history (non-blocking)
-    storeLocationHistory({
-      taskId,
-      driverId,
-      lat,
-      lng,
-      speed,
-      timestamp,
+    // Update task status in Redis
+    const updatedTaskData = {
+      ...task,
       status,
-    }).catch(err => console.error('Failed to store history:', err));
+    };
+    await redis.set(`task:${taskId}:data`, updatedTaskData, { ex: 86400 });
 
+    // Broadcast to WebSocket subscribers
+    await publishLocationUpdate(taskId, locationData);
+
+    console.log('✅ BROADCAST: Location update sent to WebSocket subscribers', {
+      taskId,
+      status,
+      eta,
+      distance: distance.toFixed(2) + ' km',
+    });
+
+    // Save to MongoDB for history (non-blocking)
+    try {
+      const { db } = await connectToDatabase();
+      await db.collection('location_history').insertOne({
+        taskId,
+        driverId,
+        lat,
+        lng,
+        speed: speed || 0,
+        timestamp: timestamp || Date.now(),
+        status,
+        createdAt: new Date(),
+      });
+    } catch (dbError) {
+      console.error('MongoDB save failed (non-critical):', dbError);
+      // Don't fail the request if MongoDB fails
+    }
+
+    // Return success with updated data
     return NextResponse.json({
       success: true,
       data: {
         status,
-        eta: etaResult.eta,
-        distance: etaResult.distance,
+        eta,
+        distance,
+        duration,
+        remainingDistance: distance,
       },
     });
 
-  } catch (error) {
-    console.error('Error processing driver update:', error);
+  } catch (error: any) {
+    console.error('Error updating driver location:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error.message || 'Failed to update location' },
       { status: 500 }
     );
   }

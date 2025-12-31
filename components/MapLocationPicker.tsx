@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GoogleMap, useJsApiLoader, Marker, Autocomplete } from '@react-google-maps/api';
+import { GoogleMap, Marker, Autocomplete } from '@react-google-maps/api';
+import { useMapsContext } from '@/components/MapsProvider';
 
 interface Location {
   lat: number;
@@ -22,8 +23,6 @@ const mapContainerStyle = {
   height: '400px',
 };
 
-const libraries: ("places" | "geometry" | "drawing")[] = ["places"];
-
 export default function MapLocationPicker({
   initialLocation = { lat: 17.385044, lng: 78.486671, address: 'Hyderabad' },
   onLocationSelect,
@@ -31,10 +30,7 @@ export default function MapLocationPicker({
   markerColor = '#3b82f6',
   showSearch = true,
 }: MapLocationPickerProps) {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '',
-    libraries,
-  });
+  const { isLoaded } = useMapsContext();
 
   const [selectedLocation, setSelectedLocation] = useState<Location>(initialLocation);
   const [mapCenter, setMapCenter] = useState(initialLocation);

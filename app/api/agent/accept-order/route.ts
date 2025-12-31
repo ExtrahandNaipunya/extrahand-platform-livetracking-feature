@@ -1,38 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskData, storeTaskData, storeTaskLocation, redis } from '@/lib/redis';
+import { redis } from '@/lib/redis';
 
 /**
- * Generate a 4-digit delivery OTP
- */
-function generateDeliveryOTP(): string {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-}
-
-/**
- * Accept an order (delivery agent accepts)
+ * Agent accepts an order
+ * - Removes order from pending list
+ * - Assigns agent to the task
+ * - Updates task status to ASSIGNED
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    
-    const {
-      taskId,
-      agentId,
-      agentName,
-      agentPhone,
-    } = body;
+    const { taskId, agentId } = await request.json();
 
-    // Validate required fields
-    if (!taskId || !agentId || !agentName || !agentPhone) {
+    if (!taskId || !agentId) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing taskId or agentId' },
         { status: 400 }
       );
     }
 
-    // Get task data
-    const taskData = await getTaskData(taskId);
-    
+    // Get task data from Redis
+    const taskDataKey = `task:${taskId}:data`;
+    const taskData = await redis.get(taskDataKey);
+
     if (!taskData) {
       return NextResponse.json(
         { error: 'Task not found' },
@@ -40,74 +29,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update task with driver info and ensure OTP exists
-    const updatedTask = {
-      ...taskData,
-      driver: {
-        id: agentId,
-        name: agentName,
-        phone: agentPhone,
-        vehicleNumber: 'TS09 XX 0000',
-        rating: 4.5,
-      },
-      status: 'PICKED_UP',
-      acceptedAt: new Date().toISOString(),
-      deliveryOTP: taskData.deliveryOTP || generateDeliveryOTP(),
-    };
+    const task = typeof taskData === 'string' ? JSON.parse(taskData) : taskData;
 
-    await storeTaskData(taskId, updatedTask);
-
-    // Initialize location at pickup with OTP
-    const initialLocation = {
-      taskId,
-      driverId: agentId,
-      lat: taskData.pickup.lat,
-      lng: taskData.pickup.lng,
-      speed: 0,
-      timestamp: Date.now(),
-      status: 'PICKED_UP',
-      eta: 'Calculating...',
-      distance: 0,
-      duration: 0,
-      driver: updatedTask.driver,
-      deliveryOTP: updatedTask.deliveryOTP,
-    };
-
-    await storeTaskLocation(taskId, initialLocation);
-
-    // Remove from pending orders
-    const pendingOrders = await redis.lrange('pending_orders', 0, -1);
-    const filtered = pendingOrders.filter((order: any) => {
-      const orderObj = typeof order === 'string' ? JSON.parse(order) : order;
-      return orderObj.taskId !== taskId;
-    });
-    
-    await redis.del('pending_orders');
-    if (filtered.length > 0) {
-      await redis.lpush('pending_orders', ...filtered);
+    // Check if task is already assigned
+    if (task.status !== 'PENDING' && task.agentId) {
+      return NextResponse.json(
+        { error: 'Task already assigned to another agent' },
+        { status: 409 }
+      );
     }
 
-    // Broadcast to customer tracking page via WebSocket
-    const { publishLocationUpdate } = await import('@/lib/redis');
-    await publishLocationUpdate(taskId, {
-      ...initialLocation,
-      notification: {
-        type: 'agent_accepted',
-        message: `${agentName} accepted your order!`,
-        driverInfo: updatedTask.driver,
-        deliveryOTP: updatedTask.deliveryOTP,
-        agentMessage: `Your delivery OTP is: ${updatedTask.deliveryOTP}. Share this with customer at delivery.`,
+    // Update task with agent information
+    const updatedTask = {
+      ...task,
+      agentId,
+      status: 'ASSIGNED',
+      assignedAt: new Date().toISOString(),
+      driver: {
+        id: agentId,
+        name: `Agent ${agentId.slice(-6)}`,
+        phone: '+1234567890',
+        vehicle: 'Motorcycle',
+        rating: 4.8,
       },
+    };
+
+    // Save updated task back to Redis
+    await redis.set(taskDataKey, JSON.stringify(updatedTask), { ex: 86400 }); // 24 hour expiry
+
+    // Remove from pending orders list
+    const pendingOrders = await redis.lrange('pending_orders', 0, -1);
+    
+    // Filter out the accepted order
+    const remainingOrders = pendingOrders.filter((order: any) => {
+      try {
+        const orderObj = typeof order === 'string' ? JSON.parse(order) : order;
+        return orderObj.taskId !== taskId;
+      } catch {
+        return true;
+      }
     });
+
+    // Clear and rebuild pending orders list
+    await redis.del('pending_orders');
+    if (remainingOrders.length > 0) {
+      await redis.rpush('pending_orders', ...remainingOrders);
+    }
+
+    // Add to active orders list for this agent
+    const activeOrderKey = `agent:${agentId}:active_order`;
+    await redis.set(activeOrderKey, JSON.stringify(updatedTask), { ex: 86400 });
+
+    // Initialize location for the task
+    const initialLocation = {
+      taskId,
+      lat: task.pickup.lat,
+      lng: task.pickup.lng,
+      status: 'ASSIGNED',
+      eta: 'Calculating...',
+      distance: 0,
+      speed: 0,
+      timestamp: new Date().toISOString(),
+    };
+
+    await redis.set(`task:${taskId}:location`, JSON.stringify(initialLocation), { ex: 86400 });
 
     return NextResponse.json({
       success: true,
       message: 'Order accepted successfully',
-      data: {
-        taskId,
-        navigationUrl: `/agent/navigate/${taskId}`,
-        deliveryOTP: updatedTask.deliveryOTP,
-      },
+      task: updatedTask,
     });
 
   } catch (error) {

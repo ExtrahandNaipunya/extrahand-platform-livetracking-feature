@@ -1,320 +1,198 @@
-// Notification service for toast and browser notifications
-import { TaskStatus } from '@/types';
-
-export type NotificationType = 'success' | 'info' | 'warning' | 'error';
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 export interface ToastNotification {
   id: string;
-  type: NotificationType;
+  type: ToastType;
   title: string;
-  message: string;
-  duration?: number;
+  message?: string;
   icon?: string;
-  sound?: boolean;
+  duration?: number;
 }
 
+type Subscriber = (notification: ToastNotification) => void;
+
 class NotificationService {
-  private static instance: NotificationService;
-  private listeners: ((notification: ToastNotification) => void)[] = [];
-  private notificationPermission: NotificationPermission = 'default';
-  private notificationCooldown: Map<string, number> = new Map();
+  private isSupported: boolean = false;
+  private isPermissionGranted: boolean = false;
+  private subscribers: Subscriber[] = [];
 
-  private constructor() {
-    this.checkPermission();
-  }
-
-  static getInstance(): NotificationService {
-    if (!NotificationService.instance) {
-      NotificationService.instance = new NotificationService();
-    }
-    return NotificationService.instance;
-  }
-
-  // Check browser notification permission
-  async checkPermission(): Promise<void> {
-    if ('Notification' in window) {
-      this.notificationPermission = Notification.permission;
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.isSupported = 'Notification' in window;
+      this.isPermissionGranted = this.isSupported && Notification.permission === 'granted';
     }
   }
 
-  // Check if notification is duplicate (deduplication mechanism)
-  private isDuplicate(key: string, cooldownMs: number = 5000): boolean {
-    const lastTime = this.notificationCooldown.get(key);
-    const now = Date.now();
-    
-    if (lastTime && now - lastTime < cooldownMs) {
-      return true; // Skip duplicate within cooldown period
-    }
-    
-    this.notificationCooldown.set(key, now);
-    return false;
+  subscribe(callback: Subscriber): () => void {
+    this.subscribers.push(callback);
+    return () => {
+      this.subscribers = this.subscribers.filter(sub => sub !== callback);
+    };
   }
 
-  // Request permission for browser notifications
+  private notify(notification: Omit<ToastNotification, 'id'>) {
+    const toastNotification: ToastNotification = {
+      ...notification,
+      id: Math.random().toString(36).substring(7),
+    };
+    this.subscribers.forEach(sub => sub(toastNotification));
+  }
+
   async requestPermission(): Promise<boolean> {
-    if (!('Notification' in window)) {
-      console.warn('Browser does not support notifications');
+    if (!this.isSupported) {
+      console.warn('Notifications not supported in this browser');
       return false;
     }
 
-    if (this.notificationPermission === 'granted') {
+    if (Notification.permission === 'granted') {
+      this.isPermissionGranted = true;
       return true;
     }
 
-    const permission = await Notification.requestPermission();
-    this.notificationPermission = permission;
-    return permission === 'granted';
-  }
-
-  // Subscribe to notifications
-  subscribe(listener: (notification: ToastNotification) => void): () => void {
-    this.listeners.push(listener);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== listener);
-    };
-  }
-
-  // Show toast notification
-  showToast(
-    type: NotificationType,
-    title: string,
-    message: string,
-    options?: {
-      duration?: number;
-      icon?: string;
-      sound?: boolean;
+    if (Notification.permission !== 'denied') {
+      const permission = await Notification.requestPermission();
+      this.isPermissionGranted = permission === 'granted';
+      return this.isPermissionGranted;
     }
-  ): void {
-    const notification: ToastNotification = {
-      id: `toast-${Date.now()}-${Math.random()}`,
+
+    return false;
+  }
+
+  showToast(
+    type: ToastType,
+    title: string,
+    message?: string,
+    options?: { duration?: number }
+  ) {
+    this.notify({
       type,
       title,
-      message,
-      duration: options?.duration || 5000,
-      icon: options?.icon,
-      sound: options?.sound || false,
-    };
-
-    // Notify all listeners
-    this.listeners.forEach((listener) => listener(notification));
-
-    // Play sound if enabled
-    if (options?.sound) {
-      this.playNotificationSound(type);
-    }
+      message: message || '',
+      duration: options?.duration || 3000,
+    });
   }
 
-  // Show browser push notification
-  async showPushNotification(
-    title: string,
-    message: string,
-    options?: {
-      icon?: string;
-      badge?: string;
-      tag?: string;
-      requireInteraction?: boolean;
-    }
-  ): Promise<void> {
-    if (this.notificationPermission !== 'granted') {
-      const granted = await this.requestPermission();
-      if (!granted) return;
+  async showNotification(title: string, body: string, icon?: string) {
+    if (!this.isPermissionGranted) {
+      await this.requestPermission();
     }
 
-    try {
-      const notification = new Notification(title, {
-        body: message,
-        icon: options?.icon || '/icon.png',
-        badge: options?.badge || '/badge.png',
-        tag: options?.tag || 'extrahand-notification',
-        requireInteraction: options?.requireInteraction || false,
-      });
-
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
-      
-      // Try to vibrate if supported
-      if ('vibrate' in navigator) {
-        navigator.vibrate([200, 100, 200]);
+    if (this.isPermissionGranted) {
+      try {
+        new Notification(title, {
+          body,
+          icon: icon || '/logo.png',
+          badge: '/logo.png',
+        });
+      } catch (error) {
+        console.error('Error showing notification:', error);
       }
-    } catch (error) {
-      console.error('Failed to show push notification:', error);
     }
   }
 
-  // Play notification sound
-  private playNotificationSound(type: NotificationType): void {
-    try {
-      const audio = new Audio();
-      // Use different frequencies for different types
-      const frequencies = {
-        success: 800,
-        info: 600,
-        warning: 500,
-        error: 400,
-      };
-
-      // Create simple beep sound using Web Audio API
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      oscillator.frequency.value = frequencies[type];
-      oscillator.type = 'sine';
-
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
-    } catch (error) {
-      console.error('Failed to play notification sound:', error);
-    }
-  }
-
-  // Status change notifications with deduplication
-  notifyStatusChange(status: TaskStatus, driverName?: string): void {
-    const key = `status_${status}`;
-    if (this.isDuplicate(key, 8000)) return; // 8 second cooldown
-
-    const statusMessages: Record<TaskStatus, { title: string; message: string; type: NotificationType; icon: string }> = {
+  notifyStatusChange(status: string, driverName?: string) {
+    const statusMessages: Record<string, { title: string; message: string; type: ToastType }> = {
       PENDING: {
-        title: '🔍 Finding Delivery Partner',
-        message: 'We are searching for a delivery partner near you...',
+        title: '🔍 Finding Partner',
+        message: 'Looking for a delivery partner...',
         type: 'info',
-        icon: '🔍',
       },
       PICKED_UP: {
-        title: '📦 Order Picked Up',
-        message: `${driverName || 'Your driver'} has picked up your order and is on the way!`,
+        title: '📦 Package Picked Up',
+        message: `${driverName || 'Driver'} has picked up your package`,
         type: 'success',
-        icon: '📦',
       },
       ON_THE_WAY: {
-        title: '🚗 Driver On The Way',
-        message: `${driverName || 'Your driver'} is heading to the destination`,
+        title: '🚗 On the Way',
+        message: `${driverName || 'Driver'} is on the way to deliver your package`,
         type: 'info',
-        icon: '🚗',
       },
       ARRIVING: {
-        title: '📍 Driver Arriving Soon',
-        message: `${driverName || 'Your driver'} will arrive in a few minutes!`,
+        title: '📍 Arriving Soon',
+        message: `${driverName || 'Driver'} is arriving at your location`,
         type: 'warning',
-        icon: '📍',
       },
       COMPLETED: {
-        title: '✅ Delivery Completed',
-        message: 'Your order has been delivered successfully!',
+        title: '✅ Delivered',
+        message: 'Your package has been delivered successfully!',
         type: 'success',
-        icon: '✅',
       },
       CANCELLED: {
-        title: '❌ Order Cancelled',
-        message: 'This order has been cancelled',
+        title: '❌ Cancelled',
+        message: 'Delivery has been cancelled',
         type: 'error',
-        icon: '❌',
       },
     };
 
-    const config = statusMessages[status];
-    this.showToast(config.type, config.title, config.message, {
-      duration: 6000,
-      icon: config.icon,
-      sound: true,
-    });
-
-    // Also show browser notification for important statuses
-    if (['PICKED_UP', 'ARRIVING', 'COMPLETED'].includes(status)) {
-      this.showPushNotification(config.title, config.message, {
-        requireInteraction: status === 'ARRIVING',
-      });
-    }
-  }
-
-  // Proximity notifications with deduplication
-  notifyProximity(distanceKm: number, driverName?: string): void {
-    if (distanceKm <= 0.5 && distanceKm > 0.3) {
-      const key = 'proximity_500m';
-      if (this.isDuplicate(key, 10000)) return; // 10 second cooldown
-      
-      this.showToast('warning', '🚗 Driver Nearby', `${driverName || 'Your driver'} is less than 500m away!`, {
-        duration: 5000,
-        sound: true,
-      });
-      this.showPushNotification('Driver Nearby', `${driverName || 'Your driver'} is approaching your location`);
-    } else if (distanceKm <= 0.3) {
-      const key = 'proximity_300m';
-      if (this.isDuplicate(key, 10000)) return; // 10 second cooldown
-      
-      this.showToast('warning', '📍 Driver Arriving', `${driverName || 'Your driver'} is arriving now!`, {
-        duration: 7000,
-        sound: true,
-      });
-    }
-  }
-
-  // ETA notifications
-  notifyETAUpdate(eta: string, isDelay: boolean): void {
-    if (isDelay) {
-      this.showToast('warning', '⏱️ Updated Arrival Time', `New estimated arrival: ${eta}`, {
+    const notification = statusMessages[status];
+    if (notification) {
+      this.showToast(notification.type, notification.title, notification.message, {
         duration: 5000,
       });
+      
+      this.showNotification(notification.title, notification.message);
     }
   }
 
-  // Geofence notifications with deduplication
-  notifyGeofenceEvent(eventType: 'entered' | 'approaching', zoneType: 'pickup' | 'destination', zoneName?: string): void {
-    const key = `geofence_${zoneType}_${eventType}`;
-    if (this.isDuplicate(key, 8000)) return; // 8 second cooldown
+  notifyProximity(distance: number, driverName?: string) {
+    if (distance <= 0.5 && distance > 0.3) {
+      this.showToast(
+        'warning',
+        '📍 Driver Nearby',
+        `${driverName || 'Driver'} is ${distance.toFixed(1)} km away`,
+        { duration: 4000 }
+      );
+    } else if (distance <= 0.3) {
+      this.showToast(
+        'warning',
+        '🚨 Driver Very Close',
+        `${driverName || 'Driver'} is arriving soon (${(distance * 1000).toFixed(0)} meters)`,
+        { duration: 4000 }
+      );
+    }
+  }
 
-    const messages = {
-      pickup: {
-        entered: {
-          title: '📍 Arrived at Pickup',
-          message: `Driver has arrived at ${zoneName || 'pickup location'}`,
-          type: 'success' as const,
-          sound: true,
-        },
-        approaching: {
-          title: '🚗 Driver Approaching Pickup',
-          message: `Driver is near ${zoneName || 'pickup location'}`,
-          type: 'info' as const,
-          sound: true,
-        },
+  notifyGeofenceEvent(
+    eventType: 'entered' | 'exited' | 'approaching',
+    zoneType: 'pickup' | 'destination',
+    zoneName: string
+  ) {
+    const messages: Record<string, { title: string; message: string; type: ToastType }> = {
+      'entered-pickup': {
+        title: '📍 At Pickup',
+        message: `Driver has arrived at ${zoneName}`,
+        type: 'success',
       },
-      destination: {
-        entered: {
-          title: '🎯 Arrived at Destination',
-          message: `Driver has reached ${zoneName || 'your destination'}!`,
-          type: 'success' as const,
-          sound: true,
-        },
-        approaching: {
-          title: '📍 Almost There',
-          message: `Driver is approaching ${zoneName || 'destination'}`,
-          type: 'warning' as const,
-          sound: true,
-        },
+      'entered-destination': {
+        title: '🎯 At Destination',
+        message: `Driver has arrived at ${zoneName}`,
+        type: 'success',
+      },
+      'approaching-pickup': {
+        title: '🚗 Approaching Pickup',
+        message: `Driver is near ${zoneName}`,
+        type: 'info',
+      },
+      'approaching-destination': {
+        title: '🏁 Approaching Destination',
+        message: `Driver is near ${zoneName}`,
+        type: 'warning',
       },
     };
 
-    const config = messages[zoneType][eventType];
-    this.showToast(config.type, config.title, config.message, {
-      duration: 6000,
-      sound: config.sound,
-    });
-
-    // Browser notification for arrivals
-    if (eventType === 'entered') {
-      this.showPushNotification(config.title, config.message, {
-        requireInteraction: true,
+    const key = `${eventType}-${zoneType}`;
+    const notification = messages[key];
+    
+    if (notification) {
+      this.showToast(notification.type, notification.title, notification.message, {
+        duration: 4000,
       });
     }
+  }
+
+  notifyDeliveryUpdate(message: string, type: ToastType = 'info') {
+    this.showToast(type, '📦 Delivery Update', message);
   }
 }
 
-export const notificationService = NotificationService.getInstance();
+export const notificationService = new NotificationService();
