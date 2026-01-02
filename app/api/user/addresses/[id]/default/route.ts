@@ -5,9 +5,10 @@ import { SavedAddress } from '@/types';
 // PUT /api/user/addresses/[id]/default - Set as default address
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params;
     const userId = request.headers.get('x-user-id') || 'demo-user';
     const { id } = params;
 

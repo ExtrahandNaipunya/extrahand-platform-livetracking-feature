@@ -65,6 +65,9 @@ export function useSocket(taskId: string | null) {
         lng: data.lng,
         status: data.status,
         eta: data.eta,
+        speed: data.speed,
+        remainingDistance: data.remainingDistance,
+        distance: data.distance,
       });
       
       updateLocation({ lat: data.lat, lng: data.lng });
@@ -90,6 +93,8 @@ export function useSocket(taskId: string | null) {
             lat: data.lat,
             lng: data.lng,
             status: data.status,
+            speed: data.speed,
+            remainingDistance: data.remainingDistance,
           });
           
           updateLocation({ lat: data.lat, lng: data.lng });

@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       eta,
       distance,
       duration,
+      remainingDistance: distance, // ✅ FIXED: Include remainingDistance in WebSocket broadcast
       driver: task.driver,
     };
 
@@ -88,6 +89,8 @@ export async function POST(request: NextRequest) {
       status,
       eta,
       distance: distance.toFixed(2) + ' km',
+      remainingDistance: distance.toFixed(2) + ' km',
+      speed: (speed || 0) + ' km/h',
     });
 
     // Save to MongoDB for history (non-blocking)

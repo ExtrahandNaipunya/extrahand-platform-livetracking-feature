@@ -130,6 +130,8 @@ export default function TrackingPage() {
             driver: response.data.driver,
             distance: response.data.distance,
             duration: response.data.duration,
+            remainingDistance: response.data.remainingDistance || response.data.distance, // ✅ FIXED: Include remainingDistance
+            speed: response.data.speed || 0, // ✅ FIXED: Include speed
           });
           notificationService.showToast('success', '✅ Refreshed', 'Tracking data updated', { duration: 2000 });
         } catch (err) {
@@ -217,7 +219,9 @@ export default function TrackingPage() {
           driver: data.driver,
           distance: data.distance,
           duration: data.duration,
-          proofOfDelivery: data.proofOfDelivery, // ✅ FIXED: Include POD for completed status
+          remainingDistance: data.remainingDistance || data.distance, // ✅ FIXED: Use remainingDistance
+          speed: data.speed || 0, // ✅ FIXED: Include speed from API
+          proofOfDelivery: data.proofOfDelivery,
         });
 
         // Store OTP if available
@@ -228,22 +232,30 @@ export default function TrackingPage() {
         // Initialize geofencing
         initializeGeofencing(data.pickup, data.destination);
 
-        // Fetch route from server-side API to avoid exposing API key
+        // Fetch route from agent's CURRENT location to destination (dynamic route)
         try {
+          const agentLat = data.lat;
+          const agentLng = data.lng;
+          const destLat = data.destination.lat;
+          const destLng = data.destination.lng;
+
           const routeResponse = await axios.get(
-            `/api/route/${taskId}?pickupLat=${data.pickup.lat}&pickupLng=${data.pickup.lng}&destLat=${data.destination.lat}&destLng=${data.destination.lng}`
+            `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
           );
           if (routeResponse.data.route) {
+            console.log('🗺️ USER TRACKING: Route loaded from agent location to destination', {
+              points: routeResponse.data.route.length,
+              from: { lat: agentLat, lng: agentLng },
+              to: { lat: destLat, lng: destLng }
+            });
             setRoute(routeResponse.data.route);
           } else {
-            // Fallback to straight line
-            const fallbackRoute = generateFallbackRoute(data.pickup, data.destination);
+            const fallbackRoute = generateFallbackRoute({ lat: agentLat, lng: agentLng }, data.destination);
             setRoute(fallbackRoute);
           }
         } catch (routeError) {
           console.error('Error fetching route:', routeError);
-          // Fallback to straight line on error
-          const fallbackRoute = generateFallbackRoute(data.pickup, data.destination);
+          const fallbackRoute = generateFallbackRoute({ lat: data.lat, lng: data.lng }, data.destination);
           setRoute(fallbackRoute);
         }
 
@@ -257,6 +269,41 @@ export default function TrackingPage() {
 
     fetchInitialData();
   }, [taskId, setTaskId, setTrackingData, setLoading, setError, initializeGeofencing]);
+
+  // ✅ NEW: Update route dynamically when agent location changes
+  useEffect(() => {
+    if (!trackingData?.currentLocation || !trackingData?.destination) return;
+    if (trackingData.status === 'COMPLETED' || trackingData.status === 'PENDING') return;
+
+    // Update route from current agent location to destination
+    const updateRoute = async () => {
+      try {
+        const agentLat = trackingData.currentLocation.lat;
+        const agentLng = trackingData.currentLocation.lng;
+        const destLat = trackingData.destination.lat;
+        const destLng = trackingData.destination.lng;
+
+        const routeResponse = await axios.get(
+          `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
+        );
+        
+        if (routeResponse.data.route) {
+          console.log('🗺️ USER TRACKING: Route updated', {
+            points: routeResponse.data.route.length,
+            agentLocation: { lat: agentLat, lng: agentLng }
+          });
+          setRoute(routeResponse.data.route);
+        }
+      } catch (error) {
+        console.error('Error updating route:', error);
+        // Keep existing route on error
+      }
+    };
+
+    // Debounce route updates - only update every 5 seconds
+    const timeoutId = setTimeout(updateRoute, 5000);
+    return () => clearTimeout(timeoutId);
+  }, [trackingData?.currentLocation, trackingData?.destination, trackingData?.status, taskId]);
 
   // Monitor geofence events
   useEffect(() => {

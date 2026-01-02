@@ -122,6 +122,13 @@ export default function AgentNavigationPage() {
         }
       ] : [];
 
+      console.log('🗺️ AGENT: Calculating route', {
+        from: currentLocation,
+        to: taskData.destination,
+        hasPickupWaypoint: !isPickupVerified,
+        isPickupVerified
+      });
+
       const result = await directionsService.route({
         origin: currentLocation,
         destination: taskData.destination,
@@ -163,10 +170,11 @@ export default function AgentNavigationPage() {
         }
       });
       
-      console.log(`🗺️ Route extracted: ${points.length} waypoints, through ${result.routes[0].legs.length} legs`, {
+      console.log(`🗺️ AGENT: Route calculated with ${points.length} waypoints, ${result.routes[0].legs.length} legs`, {
         hasPickupWaypoint: !isPickupVerified,
         pickup: taskData.pickup,
-        destination: taskData.destination
+        destination: taskData.destination,
+        startingFrom: currentLocation
       });
       setRoutePoints(points);
     } catch (error) {
@@ -194,6 +202,13 @@ export default function AgentNavigationPage() {
       async (position) => {
         const { latitude, longitude, speed } = position.coords;
         const newLocation = { lat: latitude, lng: longitude };
+        
+        console.log('📡 Real GPS: Position update', {
+          location: newLocation,
+          isPickupVerified,
+          speed: speed ? (speed * 3.6).toFixed(1) + ' km/h' : 'N/A'
+        });
+        
         setCurrentLocation(newLocation);
 
         // ADDED: Check if arrived at PICKUP location (if not verified yet)
@@ -354,28 +369,41 @@ export default function AgentNavigationPage() {
     }
 
     try {
+      // ✅ CRITICAL FIX: Update currentLocation to pickup location BEFORE verifying
+      // This ensures the next route calculation starts from pickup, not old agent location
+      setCurrentLocation(taskData.pickup);
+      console.log('✅ PICKUP VERIFIED: Updated agent location to pickup', taskData.pickup);
+      
       // Update status to PICKED_UP
       const response = await axios.post('/api/driver/update', {
         taskId,
         driverId: taskData.driver?.id || 'agent_001',
-        lat: currentLocation.lat,
-        lng: currentLocation.lng,
+        lat: taskData.pickup.lat, // Use pickup location
+        lng: taskData.pickup.lng, // Use pickup location
         speed: 0,
         timestamp: Date.now(),
       });
 
       setIsPickupVerified(true);
+      
+      // ✅ CRITICAL FIX: Reset route index so simulation starts from pickup
+      setCurrentRouteIndex(0);
+      
       alert('✅ Pickup verified! You can now proceed to the destination.');
       
       // If Real GPS, automatically restart tracking
       if (useRealGPS) {
+        console.log('📍 Real GPS: Restarting GPS tracking from pickup location');
         setTimeout(() => {
           startRealGPS();
         }, 1000);
+      } else {
+        console.log('🎮 Simulation: User must click Start Simulation to continue to destination');
       }
       // If simulation, user needs to click Start again to continue to destination
       
       // Route will automatically recalculate via useEffect when isPickupVerified changes
+      // Now it will calculate from pickup (current location) to destination
     } catch (error) {
       console.error('Error verifying pickup:', error);
       alert('❌ Failed to verify pickup. Please try again.');
@@ -386,6 +414,7 @@ export default function AgentNavigationPage() {
   const handleCompleteDelivery = async () => {
     // No OTP check - customer already verified at pickup
     try {
+      console.log('🔵 Completing delivery for taskId:', taskId);
       const response = await axios.post('/api/delivery/complete', {
         taskId,
         proofOfDelivery: {
@@ -397,12 +426,20 @@ export default function AgentNavigationPage() {
       });
 
       if (response.data.success) {
+        console.log('✅ Delivery completed successfully');
         alert('✅ Delivery completed successfully!');
         window.location.href = '/agent';
       }
     } catch (error: any) {
-      alert('❌ Failed to complete delivery');
-      console.error('Delivery completion error:', error);
+      console.error('❌ Delivery completion error:', error.response?.status, error.response?.data);
+      // Only show alert if not already shown
+      if (!error.response?.data?.alertShown) {
+        const errorMsg = error.response?.status === 404 
+          ? '❌ Delivery endpoint not found. Please restart the server.'
+          : '❌ Failed to complete delivery. Please try again.';
+        alert(errorMsg);
+        error.response.data = { ...error.response?.data, alertShown: true };
+      }
     }
   };
 

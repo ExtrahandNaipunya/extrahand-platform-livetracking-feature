@@ -7,9 +7,10 @@ import { getRoute, generateFallbackRoute } from '@/lib/routing';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { taskId: string } }
+  props: { params: Promise<{ taskId: string }> }
 ) {
   try {
+    const params = await props.params;
     const { searchParams } = new URL(request.url);
     const pickupLat = parseFloat(searchParams.get('pickupLat') || '0');
     const pickupLng = parseFloat(searchParams.get('pickupLng') || '0');

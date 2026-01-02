@@ -3,9 +3,10 @@ import redis from '@/lib/redis';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { taskId: string } }
+  props: { params: Promise<{ taskId: string }> }
 ) {
   try {
+    const params = await props.params;
     const { taskId } = params;
 
     if (!taskId) {
