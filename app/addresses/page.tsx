@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import axios from 'axios';
 import { SavedAddress } from '@/types';
 import SkeletonLoader from '@/components/SkeletonLoader';
@@ -9,9 +9,15 @@ import { formatAddress } from '@/lib/addressValidation';
 
 export default function SavedAddressesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  // ✅ NEW: Check if in selection mode
+  const mode = searchParams.get('mode'); // 'pickup' or 'drop'
+  const returnTo = searchParams.get('returnTo'); // 'order'
+  const isSelectionMode = mode && returnTo;
 
   useEffect(() => {
     fetchAddresses();
@@ -57,6 +63,21 @@ export default function SavedAddressesPage() {
     }
   };
 
+  // ✅ NEW: Handle address selection
+  const handleSelectAddress = (address: SavedAddress) => {
+    if (!isSelectionMode) return;
+    
+    const addressData = {
+      lat: address.latitude,
+      lng: address.longitude,
+      fullAddress: address.fullAddress,
+      address: address.fullAddress,
+    };
+    
+    const encodedAddress = encodeURIComponent(JSON.stringify(addressData));
+    router.push(`/order/new?selectedAddress=${encodedAddress}&addressMode=${mode}`);
+  };
+
   if (loading) {
     return <SkeletonLoader variant="history" />;
   }
@@ -69,25 +90,32 @@ export default function SavedAddressesPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <button
-                onClick={() => router.push('/')}
+                onClick={() => router.push(isSelectionMode ? '/order/new' : '/')}
                 className="text-gray-600 hover:text-black transition-colors"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-                <span className="text-yellow-400 mr-2">📍</span>
-                Saved Addresses
-              </h1>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+                  <span className="text-yellow-400 mr-2">📍</span>
+                  {isSelectionMode ? `Select ${mode === 'pickup' ? 'Pickup' : 'Drop'} Address` : 'Saved Addresses'}
+                </h1>
+                {isSelectionMode && (
+                  <p className="text-sm text-gray-600 mt-1">Tap an address to select it</p>
+                )}
+              </div>
             </div>
-            <button
-              onClick={() => router.push('/addresses/new')}
-              className="bg-yellow-400 hover:bg-yellow-500 text-black px-6 py-2 rounded-lg font-bold transition-colors border-2 border-black flex items-center space-x-2"
-            >
-              <span>➕</span>
-              <span>Add New</span>
-            </button>
+            {!isSelectionMode && (
+              <button
+                onClick={() => router.push('/addresses/new')}
+                className="bg-yellow-400 hover:bg-yellow-500 text-black px-6 py-2 rounded-lg font-bold transition-colors border-2 border-black flex items-center space-x-2"
+              >
+                <span>➕</span>
+                <span>Add New</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -110,7 +138,12 @@ export default function SavedAddressesPage() {
             {addresses.map((address) => (
               <div
                 key={address.id}
-                className="bg-white rounded-xl shadow-md p-5 border-2 border-gray-200 hover:border-yellow-400 transition-all"
+                onClick={() => isSelectionMode && handleSelectAddress(address)}
+                className={`bg-white rounded-xl shadow-md p-5 border-2 transition-all ${
+                  isSelectionMode 
+                    ? 'border-yellow-400 hover:border-yellow-500 hover:shadow-lg cursor-pointer hover:scale-102' 
+                    : 'border-gray-200 hover:border-yellow-400'
+                }`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center space-x-3">
@@ -145,7 +178,19 @@ export default function SavedAddressesPage() {
                   </p>
                 </div>
 
-                <div className="flex space-x-2">
+                {isSelectionMode ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectAddress(address);
+                    }}
+                    className="w-full bg-yellow-400 hover:bg-yellow-500 text-black py-3 rounded-lg font-bold transition-colors border-2 border-black flex items-center justify-center space-x-2"
+                  >
+                    <span>✅</span>
+                    <span>Select this {mode === 'pickup' ? 'Pickup' : 'Drop'} Location</span>
+                  </button>
+                ) : (
+                  <div className="flex space-x-2">
                   {!address.isDefault && (
                     <button
                       onClick={() => handleSetDefault(address.id)}
@@ -168,6 +213,7 @@ export default function SavedAddressesPage() {
                     {deletingId === address.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
+                )}
               </div>
             ))}
           </div>

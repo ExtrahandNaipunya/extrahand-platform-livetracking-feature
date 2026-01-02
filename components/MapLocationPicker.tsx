@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleMap, Marker, Autocomplete } from '@react-google-maps/api';
 import { useMapsContext } from '@/components/MapsProvider';
+import SavedAddressesDropdown from '@/components/SavedAddressesDropdown';
 
 interface Location {
   lat: number;
@@ -16,6 +17,7 @@ interface MapLocationPickerProps {
   label?: string;
   markerColor?: string;
   showSearch?: boolean;
+  mode?: 'pickup' | 'drop';
 }
 
 const mapContainerStyle = {
@@ -29,14 +31,39 @@ export default function MapLocationPicker({
   label = 'Select Location',
   markerColor = '#3b82f6',
   showSearch = true,
+  mode = 'pickup',
 }: MapLocationPickerProps) {
   const { isLoaded } = useMapsContext();
 
-  const [selectedLocation, setSelectedLocation] = useState<Location>(initialLocation);
-  const [mapCenter, setMapCenter] = useState(initialLocation);
+  // Ensure initialLocation has valid numbers
+  const validInitialLocation = {
+    lat: typeof initialLocation?.lat === 'number' ? initialLocation.lat : 17.385044,
+    lng: typeof initialLocation?.lng === 'number' ? initialLocation.lng : 78.486671,
+    address: initialLocation?.address || 'Hyderabad',
+  };
+
+  const [selectedLocation, setSelectedLocation] = useState<Location>(validInitialLocation);
+  const [mapCenter, setMapCenter] = useState(validInitialLocation);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [searchValue, setSearchValue] = useState(validInitialLocation.address || '');
   const mapRef = useRef<google.maps.Map | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  // Update when initialLocation changes from parent
+  useEffect(() => {
+    if (initialLocation && 
+        typeof initialLocation.lat === 'number' && 
+        typeof initialLocation.lng === 'number') {
+      const validLoc = {
+        lat: initialLocation.lat,
+        lng: initialLocation.lng,
+        address: initialLocation.address || '',
+      };
+      setSelectedLocation(validLoc);
+      setMapCenter(validLoc);
+      setSearchValue(validLoc.address || '');
+    }
+  }, [initialLocation]);
 
   // Reverse geocode to get address from coordinates
   const getAddressFromCoords = async (lat: number, lng: number): Promise<string> => {
@@ -67,6 +94,7 @@ export default function MapLocationPicker({
       
       const newLocation = { lat, lng, address };
       setSelectedLocation(newLocation);
+      setSearchValue(address); // ✅ Update search input
       onLocationSelect(newLocation);
     }
   }, [onLocationSelect]);
@@ -80,6 +108,7 @@ export default function MapLocationPicker({
       
       const newLocation = { lat, lng, address };
       setSelectedLocation(newLocation);
+      setSearchValue(address); // ✅ Update search input
       onLocationSelect(newLocation);
     }
   }, [onLocationSelect]);
@@ -97,6 +126,7 @@ export default function MapLocationPicker({
         const newLocation = { lat, lng, address };
         setSelectedLocation(newLocation);
         setMapCenter(newLocation);
+        setSearchValue(address); // ✅ Update search input
         onLocationSelect(newLocation);
       }
     }
@@ -116,6 +146,7 @@ export default function MapLocationPicker({
           const newLocation = { lat, lng, address };
           setSelectedLocation(newLocation);
           setMapCenter(newLocation);
+          setSearchValue(address); // ✅ Update search input
           onLocationSelect(newLocation);
           setIsGettingLocation(false);
         },
@@ -172,22 +203,33 @@ export default function MapLocationPicker({
       </div>
 
       {showSearch && (
-        <Autocomplete
-          onLoad={(autocomplete) => { autocompleteRef.current = autocomplete; }}
-          onPlaceChanged={onPlaceChanged}
-        >
-          <input
-            type="text"
-            placeholder="Search for a location..."
-            className="w-full px-4 py-3 border-2 border-yellow-400 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
-          />
-        </Autocomplete>
+        <SavedAddressesDropdown
+          mode={mode}
+          placeholder="Search or select a saved address..."
+          selectedAddress={searchValue}
+          currentLocation={selectedLocation}
+          onSelect={(location) => {
+            // Ensure valid location object
+            const validLoc = {
+              lat: typeof location?.lat === 'number' ? location.lat : selectedLocation.lat,
+              lng: typeof location?.lng === 'number' ? location.lng : selectedLocation.lng,
+              address: location?.address || '',
+            };
+            setSelectedLocation(validLoc);
+            setMapCenter(validLoc);
+            setSearchValue(validLoc.address || '');
+            onLocationSelect(validLoc);
+          }}
+        />
       )}
 
       <div className="relative rounded-lg overflow-hidden border-4 border-yellow-400">
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
-          center={mapCenter}
+          center={{
+            lat: typeof mapCenter?.lat === 'number' ? mapCenter.lat : 17.385044,
+            lng: typeof mapCenter?.lng === 'number' ? mapCenter.lng : 78.486671,
+          }}
           zoom={14}
           onClick={onMapClick}
           onLoad={onLoad}
@@ -199,7 +241,10 @@ export default function MapLocationPicker({
           }}
         >
           <Marker
-            position={selectedLocation}
+            position={{
+              lat: typeof selectedLocation?.lat === 'number' ? selectedLocation.lat : 17.385044,
+              lng: typeof selectedLocation?.lng === 'number' ? selectedLocation.lng : 78.486671,
+            }}
             draggable={true}
             onDragEnd={onMarkerDragEnd}
             icon={{
@@ -218,7 +263,7 @@ export default function MapLocationPicker({
         <div className="absolute bottom-3 left-3 right-3 bg-white/95 backdrop-blur-sm rounded-lg p-3 shadow-lg">
           <p className="text-xs text-gray-500 mb-1">Selected Location:</p>
           <p className="text-sm font-semibold text-gray-800 line-clamp-2">
-            {selectedLocation.address || `${selectedLocation.lat.toFixed(6)}, ${selectedLocation.lng.toFixed(6)}`}
+            {selectedLocation?.address || `${selectedLocation?.lat?.toFixed(6) || '0.000000'}, ${selectedLocation?.lng?.toFixed(6) || '0.000000'}`}
           </p>
         </div>
       </div>

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import axios from 'axios';
 import LocationNavbar from '@/components/LocationNavbar';
 import MapLocationPicker from '@/components/MapLocationPicker';
@@ -18,6 +18,7 @@ interface Location {
 
 export default function NewOrderPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [taskId, setTaskId] = useState('');
@@ -34,6 +35,36 @@ export default function NewOrderPage() {
     lng: 78.348449,
     address: 'Gachibowli, Hyderabad',
   });
+
+  // ✅ NEW: Handle address selection from saved addresses page
+  useEffect(() => {
+    const selectedAddress = searchParams.get('selectedAddress');
+    const mode = searchParams.get('addressMode');
+    
+    if (selectedAddress && mode) {
+      try {
+        const address = JSON.parse(decodeURIComponent(selectedAddress));
+        const location: Location = {
+          lat: address.lat,
+          lng: address.lng,
+          address: address.fullAddress || address.address,
+        };
+        
+        if (mode === 'pickup') {
+          setPickupLocation(location);
+          console.log('✅ Pickup location set from saved address:', location);
+        } else if (mode === 'drop') {
+          setDropLocation(location);
+          console.log('✅ Drop location set from saved address:', location);
+        }
+        
+        // Clean up URL params
+        router.replace('/order/new', { scroll: false });
+      } catch (error) {
+        console.error('Error parsing selected address:', error);
+      }
+    }
+  }, [searchParams, router]);
 
   // Quick test locations (2-3 min apart)
   const useQuickTestLocations = () => {
@@ -245,7 +276,7 @@ export default function NewOrderPage() {
                   {activeTab === 'pickup' ? '📍 Select Pickup' : '🎯 Select Drop'}
                 </h3>
                 <button
-                  onClick={() => router.push('/addresses')}
+                  onClick={() => router.push(`/addresses?mode=${activeTab}&returnTo=order`)}
                   className="text-sm text-yellow-600 hover:text-yellow-700 font-semibold flex items-center space-x-1 border-2 border-yellow-400 px-3 py-1 rounded-lg"
                 >
                   <span>📋</span>
@@ -260,6 +291,7 @@ export default function NewOrderPage() {
                   label="Select Pickup Point on Map"
                   markerColor="#fbbf24"
                   showSearch={true}
+                  mode="pickup"
                 />
               ) : (
                 <MapLocationPicker
@@ -268,6 +300,7 @@ export default function NewOrderPage() {
                   label="Select Drop Point on Map"
                   markerColor="#fbbf24"
                   showSearch={true}
+                  mode="drop"
                 />
               )}
             </div>
@@ -289,14 +322,14 @@ export default function NewOrderPage() {
                   <p className="text-xs text-yellow-700 font-semibold mb-1">⚡ PICKUP LOCATION</p>
                   <p className="text-sm text-gray-800">{pickupLocation.address || 'Location selected on map'}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {pickupLocation.lat.toFixed(6)}, {pickupLocation.lng.toFixed(6)}
+                    {pickupLocation?.lat?.toFixed(6) || '0.000000'}, {pickupLocation?.lng?.toFixed(6) || '0.000000'}
                   </p>
                 </div>
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
                   <p className="text-xs text-yellow-700 font-semibold mb-1">⚡ DROP LOCATION</p>
                   <p className="text-sm text-gray-800">{dropLocation.address || 'Location selected on map'}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {dropLocation.lat.toFixed(6)}, {dropLocation.lng.toFixed(6)}
+                    {dropLocation?.lat?.toFixed(6) || '0.000000'}, {dropLocation?.lng?.toFixed(6) || '0.000000'}
                   </p>
                 </div>
               </div>
