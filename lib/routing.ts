@@ -2,10 +2,12 @@ import { Location } from '@/types';
 
 /**
  * Fetch route from Google Directions API
+ * Supports optional waypoint for routing through intermediate location
  */
 export async function getRoute(
   origin: Location,
-  destination: Location
+  destination: Location,
+  waypoint?: Location
 ): Promise<Array<{ lat: number; lng: number }> | null> {
   const apiKey = process.env.GOOGLE_DISTANCE_MATRIX_KEY;
 
@@ -18,6 +20,12 @@ export async function getRoute(
     const url = new URL('https://maps.googleapis.com/maps/api/directions/json');
     url.searchParams.append('origin', `${origin.lat},${origin.lng}`);
     url.searchParams.append('destination', `${destination.lat},${destination.lng}`);
+    
+    // Add waypoint if provided (for routing through pickup)
+    if (waypoint) {
+      url.searchParams.append('waypoints', `${waypoint.lat},${waypoint.lng}`);
+    }
+    
     url.searchParams.append('mode', 'driving');
     url.searchParams.append('key', apiKey);
 

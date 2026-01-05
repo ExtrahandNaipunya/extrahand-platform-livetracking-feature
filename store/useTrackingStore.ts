@@ -140,14 +140,14 @@ export const useTrackingStore = create<TrackingStore>((set, get) => ({
   initializeGeofencing: (pickup, destination) => {
     const pickupZone: GeofenceZone = {
       center: pickup,
-      radius: 100, // 100 meters
+      radius: 50, // 50 meters - More precise
       type: 'pickup',
       name: 'Pickup Location',
     };
     
     const destinationZone: GeofenceZone = {
       center: destination,
-      radius: 100, // 100 meters
+      radius: 50, // 50 meters - More precise
       type: 'destination',
       name: 'Destination',
     };

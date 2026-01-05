@@ -70,6 +70,8 @@ export async function POST(request: NextRequest) {
         completedAt: completedTask.completedAt,
         proofOfDelivery: completedTask.proofOfDelivery,
       });
+    } else {
+      console.warn('WebSocket server not available for delivery completion broadcast');
     }
 
     // Save to MongoDB for persistent history

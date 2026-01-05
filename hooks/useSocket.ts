@@ -79,6 +79,27 @@ export function useSocket(taskId: string | null) {
       if (data.remainingDistance !== undefined) updateRemainingDistance(data.remainingDistance);
     });
 
+    // Listen for delivery completion updates
+    socket.on('delivery_completed', (data) => {
+      console.log('✅ WEBSOCKET: Received delivery_completed', {
+        taskId: data.taskId,
+        status: data.status,
+        completedAt: data.completedAt,
+      });
+      
+      updateStatus(data.status);
+      
+      // Update tracking data with completion info if available
+      const { trackingData, setTrackingData } = useTrackingStore.getState();
+      if (trackingData) {
+        setTrackingData({
+          ...trackingData,
+          status: data.status,
+          proofOfDelivery: data.proofOfDelivery,
+        });
+      }
+    });
+
     // Fallback: Start polling if WebSocket fails
     const startPolling = () => {
       if (pollingIntervalRef.current) return;

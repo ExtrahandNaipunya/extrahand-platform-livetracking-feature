@@ -232,26 +232,55 @@ export default function TrackingPage() {
         // Initialize geofencing
         initializeGeofencing(data.pickup, data.destination);
 
-        // Fetch route from agent's CURRENT location to destination (dynamic route)
+        // Fetch route from agent's CURRENT location through PICKUP to destination
+        // CRITICAL: Route must go through pickup first, matching agent's actual route
         try {
           const agentLat = data.lat;
           const agentLng = data.lng;
+          const pickupLat = data.pickup.lat;
+          const pickupLng = data.pickup.lng;
           const destLat = data.destination.lat;
           const destLng = data.destination.lng;
 
-          const routeResponse = await axios.get(
-            `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
-          );
-          if (routeResponse.data.route) {
-            console.log('🗺️ USER TRACKING: Route loaded from agent location to destination', {
-              points: routeResponse.data.route.length,
-              from: { lat: agentLat, lng: agentLng },
-              to: { lat: destLat, lng: destLng }
-            });
-            setRoute(routeResponse.data.route);
+          // Check if pickup is already completed
+          const isPickupDone = data.status === 'PICKED_UP' || data.status === 'COMPLETED';
+
+          if (isPickupDone) {
+            // Pickup already done - route directly to destination
+            const routeResponse = await axios.get(
+              `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
+            );
+            if (routeResponse.data.route) {
+              console.log('🗺️ USER TRACKING: Route loaded (direct to destination)', {
+                points: routeResponse.data.route.length,
+                from: { lat: agentLat, lng: agentLng },
+                to: { lat: destLat, lng: destLng }
+              });
+              setRoute(routeResponse.data.route);
+            } else {
+              const fallbackRoute = generateFallbackRoute({ lat: agentLat, lng: agentLng }, data.destination);
+              setRoute(fallbackRoute);
+            }
           } else {
-            const fallbackRoute = generateFallbackRoute({ lat: agentLat, lng: agentLng }, data.destination);
-            setRoute(fallbackRoute);
+            // Pickup not done yet - route through pickup first
+            const routeResponse = await axios.get(
+              `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}&viaLat=${pickupLat}&viaLng=${pickupLng}`
+            );
+            if (routeResponse.data.route) {
+              console.log('🗺️ USER TRACKING: Route loaded (through pickup)', {
+                points: routeResponse.data.route.length,
+                from: { lat: agentLat, lng: agentLng },
+                via: { lat: pickupLat, lng: pickupLng },
+                to: { lat: destLat, lng: destLng }
+              });
+              setRoute(routeResponse.data.route);
+            } else {
+              // Fallback: Create route through pickup manually
+              const routeToPickup = generateFallbackRoute({ lat: agentLat, lng: agentLng }, data.pickup);
+              const routeToDestination = generateFallbackRoute(data.pickup, data.destination);
+              const combinedRoute = [...routeToPickup, ...routeToDestination];
+              setRoute(combinedRoute);
+            }
           }
         } catch (routeError) {
           console.error('Error fetching route:', routeError);
@@ -270,29 +299,58 @@ export default function TrackingPage() {
     fetchInitialData();
   }, [taskId, setTaskId, setTrackingData, setLoading, setError, initializeGeofencing]);
 
-  // ✅ NEW: Update route dynamically when agent location changes
+  // ✅ UPDATE: Update route dynamically when agent location changes
+  // CRITICAL: Route must go through pickup first if not yet picked up
   useEffect(() => {
     if (!trackingData?.currentLocation || !trackingData?.destination) return;
     if (trackingData.status === 'COMPLETED' || trackingData.status === 'PENDING') return;
 
-    // Update route from current agent location to destination
+    // Update route from current agent location through pickup (if needed) to destination
     const updateRoute = async () => {
       try {
         const agentLat = trackingData.currentLocation.lat;
         const agentLng = trackingData.currentLocation.lng;
+        const pickupLat = trackingData.pickup.lat;
+        const pickupLng = trackingData.pickup.lng;
         const destLat = trackingData.destination.lat;
         const destLng = trackingData.destination.lng;
 
-        const routeResponse = await axios.get(
-          `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
-        );
-        
-        if (routeResponse.data.route) {
-          console.log('🗺️ USER TRACKING: Route updated', {
-            points: routeResponse.data.route.length,
-            agentLocation: { lat: agentLat, lng: agentLng }
-          });
-          setRoute(routeResponse.data.route);
+        // Check if pickup is already completed
+        const isPickupDone = trackingData.status === 'PICKED_UP';
+
+        if (isPickupDone) {
+          // Pickup already done - route directly to destination
+          const routeResponse = await axios.get(
+            `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
+          );
+          
+          if (routeResponse.data.route) {
+            console.log('🗺️ USER TRACKING: Route updated (direct to destination)', {
+              points: routeResponse.data.route.length,
+              agentLocation: { lat: agentLat, lng: agentLng }
+            });
+            setRoute(routeResponse.data.route);
+          }
+        } else {
+          // Pickup not done yet - route through pickup first
+          const routeResponse = await axios.get(
+            `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}&viaLat=${pickupLat}&viaLng=${pickupLng}`
+          );
+          
+          if (routeResponse.data.route) {
+            console.log('🗺️ USER TRACKING: Route updated (through pickup)', {
+              points: routeResponse.data.route.length,
+              agentLocation: { lat: agentLat, lng: agentLng },
+              viaPickup: { lat: pickupLat, lng: pickupLng }
+            });
+            setRoute(routeResponse.data.route);
+          } else {
+            // Fallback: Create route through pickup manually
+            const routeToPickup = generateFallbackRoute({ lat: agentLat, lng: agentLng }, trackingData.pickup);
+            const routeToDestination = generateFallbackRoute(trackingData.pickup, trackingData.destination);
+            const combinedRoute = [...routeToPickup, ...routeToDestination];
+            setRoute(combinedRoute);
+          }
         }
       } catch (error) {
         console.error('Error updating route:', error);
@@ -300,10 +358,11 @@ export default function TrackingPage() {
       }
     };
 
-    // Debounce route updates - only update every 5 seconds
-    const timeoutId = setTimeout(updateRoute, 5000);
+    // REDUCED DELAY: Update route immediately, then every 3 seconds for smoother updates
+    updateRoute(); // Immediate update
+    const timeoutId = setTimeout(updateRoute, 3000);
     return () => clearTimeout(timeoutId);
-  }, [trackingData?.currentLocation, trackingData?.destination, trackingData?.status, taskId]);
+  }, [trackingData?.currentLocation, trackingData?.destination, trackingData?.status, trackingData?.pickup, taskId]);
 
   // Monitor geofence events
   useEffect(() => {

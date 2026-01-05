@@ -34,18 +34,18 @@ export async function POST(request: NextRequest) {
     const currentLocation = { lat, lng };
     let status = task.status || 'ON_THE_WAY';
 
-    // Check if near pickup (within 100m) - set to PICKED_UP or ON_THE_WAY
+    // Check if near pickup (within 50m) - set to PICKED_UP or ON_THE_WAY
     const distanceToPickup = haversineDistance(currentLocation, task.pickup);
     
-    // Check if near destination (within 100m)
+    // Check if near destination (within 50m)
     const distanceToDestination = haversineDistance(currentLocation, task.destination);
 
-    // Status logic
-    if (status === 'PENDING' && distanceToPickup < 0.1) {
+    // Status logic - More precise thresholds
+    if (status === 'PENDING' && distanceToPickup < 0.05) {  // 50 meters
       status = 'PICKED_UP';
-    } else if (status === 'PICKED_UP' && distanceToPickup > 0.1) {
+    } else if (status === 'PICKED_UP' && distanceToPickup > 0.1) {  // More than 100 meters from pickup
       status = 'ON_THE_WAY';
-    } else if (distanceToDestination < 0.2) {
+    } else if (distanceToDestination < 0.05) {  // 50 meters from destination
       status = 'ARRIVING';
     }
 
