@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { storeTaskData, storeTaskLocation } from '@/lib/redis';
+import { getDatabase } from '@/lib/database';
 
 /**
  * Generate 4-digit OTP
@@ -70,6 +71,19 @@ export async function POST(request: NextRequest) {
     const redis = (await import('@/lib/redis')).redis;
     await redis.lpush('pending_orders', JSON.stringify(orderData));
     await redis.expire('pending_orders', 3600); // 1 hour TTL
+
+    // Save to MongoDB for persistent history (non-blocking)
+    try {
+      const db = await getDatabase();
+      await db.collection('deliveries').insertOne({
+        taskId,
+        ...orderData,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (dbError) {
+      console.error('Failed to save order to MongoDB (non-critical):', dbError);
+      // Don't fail the request if MongoDB insert fails
+    }
 
     return NextResponse.json({
       success: true,

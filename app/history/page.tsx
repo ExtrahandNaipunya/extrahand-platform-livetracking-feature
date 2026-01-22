@@ -12,52 +12,44 @@ export default function OrderHistoryPage() {
   const [filter, setFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
 
   useEffect(() => {
-    // Mock data - in production, fetch from API
-    const mockOrders: OrderHistory[] = [
-      {
-        taskId: 'order_1734876543210',
-        pickup: { lat: 17.385044, lng: 78.486671, address: 'Hitech City, Hyderabad' },
-        destination: { lat: 17.440826, lng: 78.348449, address: 'Gachibowli, Hyderabad' },
-        status: 'COMPLETED',
-        createdAt: '2024-12-20T10:30:00Z',
-        completedAt: '2024-12-20T11:15:00Z',
-        driver: { id: 'D1', name: 'Raj Kumar', phone: '+91-9876543210', rating: 4.8 },
-        item: 'Documents',
-        customer: { name: 'John Doe', phone: '+91-9123456789' },
-        totalDistance: 12.5,
-        totalDuration: 45,
-        rating: 5,
-      },
-      {
-        taskId: 'order_1734790123456',
-        pickup: { lat: 17.440826, lng: 78.348449, address: 'Gachibowli, Hyderabad' },
-        destination: { lat: 17.385044, lng: 78.486671, address: 'Hitech City, Hyderabad' },
-        status: 'COMPLETED',
-        createdAt: '2024-12-19T14:20:00Z',
-        completedAt: '2024-12-19T15:00:00Z',
-        driver: { id: 'D2', name: 'Suresh Reddy', phone: '+91-9876543211', rating: 4.5 },
-        item: 'Food Package',
-        customer: { name: 'John Doe', phone: '+91-9123456789' },
-        totalDistance: 11.2,
-        totalDuration: 40,
-        rating: 4,
-      },
-      {
-        taskId: 'order_1734703654321',
-        pickup: { lat: 17.385044, lng: 78.486671, address: 'Hitech City, Hyderabad' },
-        destination: { lat: 17.440826, lng: 78.348449, address: 'Gachibowli, Hyderabad' },
-        status: 'CANCELLED',
-        createdAt: '2024-12-18T09:00:00Z',
-        item: 'Groceries',
-        customer: { name: 'John Doe', phone: '+91-9123456789' },
-      },
-    ];
+    fetchOrderHistory();
+  }, [filter]);
 
-    setTimeout(() => {
-      setOrders(mockOrders);
+  const fetchOrderHistory = async () => {
+    try {
+      setLoading(true);
+      
+      // Determine status filter for API
+      let statusParam = 'all';
+      if (filter === 'completed') statusParam = 'completed';
+      else if (filter === 'cancelled') statusParam = 'cancelled';
+      else if (filter === 'all') statusParam = 'all';
+
+      const response = await fetch(`/api/order/history?status=${statusParam}`, {
+        headers: {
+          'x-user-id': 'demo-user', // In production, get from auth context
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch order history');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setOrders(data.orders || []);
+      } else {
+        console.error('Error fetching orders:', data.error);
+        setOrders([]);
+      }
+    } catch (error) {
+      console.error('Error fetching order history:', error);
+      setOrders([]);
+    } finally {
       setLoading(false);
-    }, 500);
-  }, []);
+    }
+  };
 
   const filteredOrders = orders.filter((order) => {
     if (filter === 'all') return true;
