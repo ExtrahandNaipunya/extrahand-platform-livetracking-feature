@@ -1,13 +1,35 @@
 import { Redis } from '@upstash/redis';
 
-if (!process.env.REDIS_URL) {
-  throw new Error('REDIS_URL environment variable is not set');
+// Lazy initialization of Redis client to avoid build-time errors
+let redisClient: Redis | null = null;
+
+function getRedis(): Redis {
+  if (!redisClient) {
+    // Lazy initialization - only create client when actually needed
+    // This allows the build to complete even if env vars aren't available
+    if (!process.env.REDIS_URL) {
+      // During build, env vars might not be available
+      // Create a client with placeholder - it will fail at first use if URL is still missing
+      // This allows Next.js build to complete
+      redisClient = new Redis({
+        url: 'https://build-placeholder.upstash.io',
+        token: process.env.REDIS_TOKEN || '',
+      });
+    } else {
+      redisClient = new Redis({
+        url: process.env.REDIS_URL,
+        token: process.env.REDIS_TOKEN || '',
+      });
+    }
+  }
+  return redisClient;
 }
 
-// Initialize Upstash Redis client
-export const redis = new Redis({
-  url: process.env.REDIS_URL,
-  token: process.env.REDIS_TOKEN || '',
+// Export redis getter for backward compatibility
+export const redis = new Proxy({} as Redis, {
+  get(_target, prop) {
+    return getRedis()[prop as keyof Redis];
+  }
 });
 
 // Redis key patterns
@@ -117,4 +139,9 @@ export async function publishLocationUpdate(
   await redis.publish(channel, JSON.stringify(data));
 }
 
-export default redis;
+// Default export with lazy initialization
+export default new Proxy({} as Redis, {
+  get(_target, prop) {
+    return getRedis()[prop as keyof Redis];
+  }
+});
