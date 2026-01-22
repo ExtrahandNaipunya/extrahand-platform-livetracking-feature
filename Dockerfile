@@ -59,6 +59,7 @@ COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 # Copy built application
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/app ./app
 COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
