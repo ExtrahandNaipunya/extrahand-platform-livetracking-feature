@@ -76,7 +76,6 @@ export async function POST(request: NextRequest) {
     try {
       const db = await getDatabase();
       await db.collection('deliveries').insertOne({
-        taskId,
         ...orderData,
         updatedAt: new Date().toISOString(),
       });
