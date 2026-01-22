@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import axios from 'axios';
 import { SavedAddress } from '@/types';
 import SkeletonLoader from '@/components/SkeletonLoader';
 import { formatAddress } from '@/lib/addressValidation';
 
-export default function SavedAddressesPage() {
+// Component that uses useSearchParams - must be wrapped in Suspense
+function SavedAddressesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
@@ -220,5 +221,14 @@ export default function SavedAddressesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense boundary
+export default function SavedAddressesPage() {
+  return (
+    <Suspense fallback={<SkeletonLoader variant="history" />}>
+      <SavedAddressesContent />
+    </Suspense>
   );
 }
