@@ -58,10 +58,17 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 # Copy built application
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+
+# Create public directory (Next.js expects it)
+# Copy public directory from builder if it exists and has content
+RUN mkdir -p ./public
+RUN --mount=from=builder,source=/app/public,target=/tmp/public \
+    if [ -d /tmp/public ] && [ -n "$(ls -A /tmp/public 2>/dev/null)" ]; then \
+      cp -r /tmp/public/* ./public/; \
+    fi
 
 USER nextjs
 
