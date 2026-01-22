@@ -54,16 +54,18 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy standalone build output (includes minimal node_modules and .next)
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-# Copy static files
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-# Copy public directory
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-# Copy app directory (needed for custom server route resolution)
+# Copy production dependencies
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# Copy built application
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/app ./app
-# Copy custom server (needs to be in the same directory as standalone)
 COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+
+# Copy public directory
+RUN mkdir -p ./public
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 
