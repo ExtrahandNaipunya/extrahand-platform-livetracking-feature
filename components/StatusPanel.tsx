@@ -16,6 +16,12 @@ const statusConfig = {
     textColor: 'text-black',
     icon: '🔍',
   },
+  ASSIGNED: {
+    label: 'Partner Assigned',
+    color: 'bg-yellow-400',
+    textColor: 'text-black',
+    icon: '🛵',
+  },
   PICKED_UP: {
     label: 'Picked Up',
     color: 'bg-yellow-400',
@@ -85,11 +91,12 @@ export default function StatusPanel({ status, eta, distance }: StatusPanelProps)
             <div
               className={`${config.color} h-2 rounded-full transition-all duration-500`}
               style={{
-                width: status === 'PENDING' ? '10%' :
-                       status === 'PICKED_UP' ? '25%' : 
-                       status === 'ON_THE_WAY' ? '50%' : 
-                       status === 'ARRIVING' ? '75%' : 
-                       '100%',
+                width: status === 'PENDING' ? '5%' :
+                  status === 'ASSIGNED' ? '15%' :
+                    status === 'PICKED_UP' ? '35%' :
+                      status === 'ON_THE_WAY' ? '65%' :
+                        status === 'ARRIVING' ? '85%' :
+                          '100%',
               }}
             />
           </div>

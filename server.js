@@ -57,8 +57,8 @@ app.prepare().then(() => {
       try {
         const taskLocation = await redis.get(`task:${taskId}:location`);
         if (taskLocation) {
-          const data = typeof taskLocation === 'string' 
-            ? JSON.parse(taskLocation) 
+          const data = typeof taskLocation === 'string'
+            ? JSON.parse(taskLocation)
             : taskLocation;
           socket.emit('location_update', data);
         }
@@ -71,6 +71,20 @@ app.prepare().then(() => {
       const channel = `task:${taskId}`;
       await socket.leave(channel);
       console.log(`Client ${socket.id} unsubscribed from ${channel}`);
+    });
+
+    // Handle direct location updates from driver client
+    socket.on('update_location', (data) => {
+      const { taskId } = data;
+      if (taskId) {
+        const channel = `task:${taskId}`;
+        // Broadcast to everyone in the room (including the sender? no, usually to others)
+        // usage: io.to(channel).emit(...) or socket.to(channel).emit(...)
+        // socket.to() excludes sender. io.to() includes sender.
+        // We want to update the tracker (User), so socket.to() is fine, but io.to() is safer to ensure everyone gets it.
+        socket.to(channel).emit('location_update', data);
+        console.log(`📡 Relayed location update for task ${taskId}`);
+      }
     });
 
     socket.on('disconnect', () => {

@@ -17,7 +17,7 @@ export async function GET(
     const pickupLng = parseFloat(searchParams.get('pickupLng') || '0');
     const destLat = parseFloat(searchParams.get('destLat') || '0');
     const destLng = parseFloat(searchParams.get('destLng') || '0');
-    
+
     // Optional waypoint for routing through pickup
     const viaLat = searchParams.get('viaLat') ? parseFloat(searchParams.get('viaLat')!) : null;
     const viaLng = searchParams.get('viaLng') ? parseFloat(searchParams.get('viaLng')!) : null;
@@ -41,7 +41,9 @@ export async function GET(
     // If Google API fails, use fallback straight-line route
     if (!route) {
       console.log('Google Directions API failed, using fallback route');
-      
+
+      let fallbackRoute: Array<{ lat: number; lng: number }>;
+
       if (waypoint) {
         // Fallback with waypoint: create two segments
         const routeToWaypoint = generateFallbackRoute(
@@ -54,20 +56,27 @@ export async function GET(
           { lat: destLat, lng: destLng },
           10
         );
-        const fallbackRoute = [...routeToWaypoint, ...routeToDestination];
-        return NextResponse.json({ route: fallbackRoute });
+        fallbackRoute = [...routeToWaypoint, ...routeToDestination];
       } else {
         // Fallback direct route
-        const fallbackRoute = generateFallbackRoute(
+        fallbackRoute = generateFallbackRoute(
           { lat: pickupLat, lng: pickupLng },
           { lat: destLat, lng: destLng },
           20 // More points for smoother line
         );
-        return NextResponse.json({ route: fallbackRoute });
       }
+      return NextResponse.json({
+        route: fallbackRoute,
+        distance: null,
+        duration: null
+      });
     }
 
-    return NextResponse.json({ route });
+    return NextResponse.json({
+      route: route.path,
+      distance: route.distance,
+      duration: route.duration
+    });
   } catch (error) {
     console.error('Error fetching route:', error);
     return NextResponse.json(

@@ -8,7 +8,7 @@ export async function getRoute(
   origin: Location,
   destination: Location,
   waypoint?: Location
-): Promise<Array<{ lat: number; lng: number }> | null> {
+): Promise<{ path: Array<{ lat: number; lng: number }>; distance: number; duration: number } | null> {
   const apiKey = process.env.GOOGLE_DISTANCE_MATRIX_KEY;
 
   if (!apiKey) {
@@ -20,12 +20,12 @@ export async function getRoute(
     const url = new URL('https://maps.googleapis.com/maps/api/directions/json');
     url.searchParams.append('origin', `${origin.lat},${origin.lng}`);
     url.searchParams.append('destination', `${destination.lat},${destination.lng}`);
-    
+
     // Add waypoint if provided (for routing through pickup)
     if (waypoint) {
       url.searchParams.append('waypoints', `${waypoint.lat},${waypoint.lng}`);
     }
-    
+
     url.searchParams.append('mode', 'driving');
     url.searchParams.append('key', apiKey);
 
@@ -35,10 +35,26 @@ export async function getRoute(
     if (data.status === 'OK' && data.routes.length > 0) {
       const route = data.routes[0];
       const polyline = route.overview_polyline.points;
-      
+
       // Decode polyline to array of coordinates
       const decodedPath = decodePolyline(polyline);
-      return decodedPath;
+
+      // Calculate total distance and duration from legs
+      let totalDistance = 0;
+      let totalDuration = 0;
+
+      if (route.legs) {
+        route.legs.forEach((leg: any) => {
+          totalDistance += leg.distance?.value || 0;
+          totalDuration += leg.duration?.value || 0;
+        });
+      }
+
+      return {
+        path: decodedPath,
+        distance: totalDistance / 1000, // Convert to km
+        duration: totalDuration, // Seconds
+      };
     }
 
     return null;

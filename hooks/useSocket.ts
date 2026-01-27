@@ -8,7 +8,7 @@ import axios from 'axios';
 export function useSocket(taskId: string | null) {
   const socketRef = useRef<Socket | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const {
     setConnected,
     updateLocation,
@@ -40,7 +40,7 @@ export function useSocket(taskId: string | null) {
     socket.on('connect', () => {
       console.log('🟢 WEBSOCKET: Connected', socket.id);
       setConnected(true);
-      
+
       // Join task-specific room
       socket.emit('subscribe', taskId);
       console.log('🔵 WEBSOCKET: Subscribed to task room:', taskId);
@@ -69,12 +69,12 @@ export function useSocket(taskId: string | null) {
         remainingDistance: data.remainingDistance,
         distance: data.distance,
       });
-      
+
       updateLocation({ lat: data.lat, lng: data.lng });
       updateETA(data.eta);
       checkGeofence({ lat: data.lat, lng: data.lng });
       updateStatus(data.status);
-      
+
       if (data.speed !== undefined) updateSpeed(data.speed);
       if (data.remainingDistance !== undefined) updateRemainingDistance(data.remainingDistance);
     });
@@ -86,9 +86,9 @@ export function useSocket(taskId: string | null) {
         status: data.status,
         completedAt: data.completedAt,
       });
-      
+
       updateStatus(data.status);
-      
+
       // Update tracking data with completion info if available
       const { trackingData, setTrackingData } = useTrackingStore.getState();
       if (trackingData) {
@@ -103,13 +103,13 @@ export function useSocket(taskId: string | null) {
     // Fallback: Start polling if WebSocket fails
     const startPolling = () => {
       if (pollingIntervalRef.current) return;
-      
+
       console.log('⏱️ POLLING: Started fallback polling');
       pollingIntervalRef.current = setInterval(async () => {
         try {
           const response = await axios.get(`/api/task/${taskId}/live`);
           const data = response.data;
-          
+
           console.log('⏱️ POLLING: Fetched data', {
             lat: data.lat,
             lng: data.lng,
@@ -117,18 +117,18 @@ export function useSocket(taskId: string | null) {
             speed: data.speed,
             remainingDistance: data.remainingDistance,
           });
-          
+
           updateLocation({ lat: data.lat, lng: data.lng });
           updateETA(data.eta);
           updateStatus(data.status);
           checkGeofence({ lat: data.lat, lng: data.lng });
-          
+
           if (data.speed !== undefined) updateSpeed(data.speed);
           if (data.remainingDistance !== undefined) updateRemainingDistance(data.remainingDistance);
         } catch (error) {
           console.error('⏱️ POLLING: Error fetching data', error);
         }
-      }, 2000); // Poll every 2 seconds
+      }, 5000); // Poll every 5 seconds
     };
 
     // Cleanup

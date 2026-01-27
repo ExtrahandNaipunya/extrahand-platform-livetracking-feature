@@ -18,11 +18,12 @@ import { useTrackingStore } from '@/store/useTrackingStore';
 import { useSocket } from '@/hooks/useSocket';
 import { getRoute, generateFallbackRoute } from '@/lib/routing';
 import { notificationService } from '@/lib/notification';
+import { formatDuration } from '@/lib/eta';
 
 export default function TrackingPage() {
   const params = useParams();
   const taskId = params?.taskId as string;
-  
+
   const {
     trackingData,
     currentLocation,
@@ -38,6 +39,8 @@ export default function TrackingPage() {
     lastGeofenceEvent,
     insidePickupZone,
     insideDestinationZone,
+    updateETA,
+    updateRemainingDistance,
   } = useTrackingStore();
 
   const [route, setRoute] = useState<Array<{ lat: number; lng: number }> | null>(null);
@@ -49,6 +52,7 @@ export default function TrackingPage() {
   const [isPulling, setIsPulling] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartRef = useRef(0);
+  const lastRouteUpdateRef = useRef<number>(0);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [updatePulse, setUpdatePulse] = useState(false);
 
@@ -77,7 +81,7 @@ export default function TrackingPage() {
     // Check if driver just got assigned
     if (trackingData.driver && trackingData.status !== 'PENDING') {
       const hasShownNotification = sessionStorage.getItem(`agent_accepted_${taskId}`);
-      
+
       if (!hasShownNotification) {
         // Show notification
         notificationService.showToast(
@@ -86,7 +90,7 @@ export default function TrackingPage() {
           `${trackingData.driver.name} accepted your order. They will arrive in ${trackingData.eta || 'soon'}`,
           { duration: 5000 }
         );
-        
+
         // Mark as shown
         sessionStorage.setItem(`agent_accepted_${taskId}`, 'true');
       }
@@ -107,7 +111,7 @@ export default function TrackingPage() {
       if (pullStartRef.current === 0) return;
       const currentY = e.touches[0].clientY;
       const distance = currentY - pullStartRef.current;
-      
+
       if (distance > 0 && distance < 100) {
         setPullDistance(distance);
         setIsPulling(true);
@@ -140,7 +144,7 @@ export default function TrackingPage() {
           setLoading(false);
         }
       }
-      
+
       setIsPulling(false);
       setPullDistance(0);
       pullStartRef.current = 0;
@@ -173,7 +177,7 @@ export default function TrackingPage() {
         eta: trackingData.eta,
         timestamp: new Date().toISOString()
       });
-      
+
       // Visual feedback for updates
       setLastUpdateTime(new Date());
       setUpdatePulse(true);
@@ -253,10 +257,19 @@ export default function TrackingPage() {
             if (routeResponse.data.route) {
               console.log('🗺️ USER TRACKING: Route loaded (direct to destination)', {
                 points: routeResponse.data.route.length,
+                distance: routeResponse.data.distance,
+                duration: routeResponse.data.duration,
                 from: { lat: agentLat, lng: agentLng },
                 to: { lat: destLat, lng: destLng }
               });
               setRoute(routeResponse.data.route);
+
+              if (routeResponse.data.duration) {
+                updateETA(formatDuration(routeResponse.data.duration));
+              }
+              if (routeResponse.data.distance) {
+                updateRemainingDistance(routeResponse.data.distance);
+              }
             } else {
               const fallbackRoute = generateFallbackRoute({ lat: agentLat, lng: agentLng }, data.destination);
               setRoute(fallbackRoute);
@@ -269,11 +282,20 @@ export default function TrackingPage() {
             if (routeResponse.data.route) {
               console.log('🗺️ USER TRACKING: Route loaded (through pickup)', {
                 points: routeResponse.data.route.length,
+                distance: routeResponse.data.distance,
+                duration: routeResponse.data.duration,
                 from: { lat: agentLat, lng: agentLng },
                 via: { lat: pickupLat, lng: pickupLng },
                 to: { lat: destLat, lng: destLng }
               });
               setRoute(routeResponse.data.route);
+
+              if (routeResponse.data.duration) {
+                updateETA(formatDuration(routeResponse.data.duration));
+              }
+              if (routeResponse.data.distance) {
+                updateRemainingDistance(routeResponse.data.distance);
+              }
             } else {
               // Fallback: Create route through pickup manually
               const routeToPickup = generateFallbackRoute({ lat: agentLat, lng: agentLng }, data.pickup);
@@ -305,6 +327,14 @@ export default function TrackingPage() {
     if (!trackingData?.currentLocation || !trackingData?.destination) return;
     if (trackingData.status === 'COMPLETED' || trackingData.status === 'PENDING') return;
 
+    const now = Date.now();
+    // Throttle: Update route only every 15 seconds to save API quota
+    if (now - lastRouteUpdateRef.current < 15000) {
+      return;
+    }
+
+    lastRouteUpdateRef.current = now;
+
     // Update route from current agent location through pickup (if needed) to destination
     const updateRoute = async () => {
       try {
@@ -323,27 +353,45 @@ export default function TrackingPage() {
           const routeResponse = await axios.get(
             `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}`
           );
-          
+
           if (routeResponse.data.route) {
             console.log('🗺️ USER TRACKING: Route updated (direct to destination)', {
               points: routeResponse.data.route.length,
+              distance: routeResponse.data.distance,
+              duration: routeResponse.data.duration,
               agentLocation: { lat: agentLat, lng: agentLng }
             });
             setRoute(routeResponse.data.route);
+
+            if (routeResponse.data.duration) {
+              updateETA(formatDuration(routeResponse.data.duration));
+            }
+            if (routeResponse.data.distance) {
+              updateRemainingDistance(routeResponse.data.distance);
+            }
           }
         } else {
           // Pickup not done yet - route through pickup first
           const routeResponse = await axios.get(
             `/api/route/${taskId}?pickupLat=${agentLat}&pickupLng=${agentLng}&destLat=${destLat}&destLng=${destLng}&viaLat=${pickupLat}&viaLng=${pickupLng}`
           );
-          
+
           if (routeResponse.data.route) {
             console.log('🗺️ USER TRACKING: Route updated (through pickup)', {
               points: routeResponse.data.route.length,
+              distance: routeResponse.data.distance,
+              duration: routeResponse.data.duration,
               agentLocation: { lat: agentLat, lng: agentLng },
               viaPickup: { lat: pickupLat, lng: pickupLng }
             });
             setRoute(routeResponse.data.route);
+
+            if (routeResponse.data.duration) {
+              updateETA(formatDuration(routeResponse.data.duration));
+            }
+            if (routeResponse.data.distance) {
+              updateRemainingDistance(routeResponse.data.distance);
+            }
           } else {
             // Fallback: Create route through pickup manually
             const routeToPickup = generateFallbackRoute({ lat: agentLat, lng: agentLng }, trackingData.pickup);
@@ -358,17 +406,14 @@ export default function TrackingPage() {
       }
     };
 
-    // REDUCED DELAY: Update route immediately, then every 3 seconds for smoother updates
-    updateRoute(); // Immediate update
-    const timeoutId = setTimeout(updateRoute, 3000);
-    return () => clearTimeout(timeoutId);
+    updateRoute();
   }, [trackingData?.currentLocation, trackingData?.destination, trackingData?.status, trackingData?.pickup, taskId]);
 
   // Monitor geofence events
   useEffect(() => {
     if (lastGeofenceEvent && trackingData) {
       const { type, zone } = lastGeofenceEvent;
-      
+
       if (type === 'entered' || type === 'approaching') {
         notificationService.notifyGeofenceEvent(
           type,
@@ -416,7 +461,7 @@ export default function TrackingPage() {
           <div className="text-6xl mb-4 animate-bounce">✅</div>
           <h2 className="text-3xl font-bold text-gray-900 mb-2">Delivered Successfully!</h2>
           <p className="text-gray-600 mb-6">Your package has been delivered</p>
-          
+
           <div className="bg-green-50 rounded-lg p-4 mb-6 border-2 border-green-200">
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-gray-600">Delivered at:</span>
@@ -488,7 +533,7 @@ export default function TrackingPage() {
       if (response.data.success) {
         notificationService.showToast('success', '✅ Delivery Confirmed', 'Proof of delivery submitted successfully!');
         setShowPODModal(false);
-        
+
         // Refresh tracking data to show completed status
         const updatedData = await axios.get(`/api/task/${taskId}/live`);
         setTrackingData({
@@ -510,15 +555,15 @@ export default function TrackingPage() {
 
       {/* Pull to Refresh Indicator (Mobile) */}
       {isPulling && isMobile && (
-        <div 
+        <div
           className="fixed top-16 left-0 right-0 z-50 flex items-center justify-center transition-all"
           style={{ transform: `translateY(${Math.min(pullDistance, 60)}px)` }}
         >
           <div className="bg-yellow-400 text-black px-6 py-3 rounded-full shadow-lg font-bold flex items-center space-x-2 border-2 border-black">
-            <svg 
-              className={`w-5 h-5 ${pullDistance > 60 ? 'animate-spin' : ''}`} 
-              fill="none" 
-              stroke="currentColor" 
+            <svg
+              className={`w-5 h-5 ${pullDistance > 60 ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
               viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -536,13 +581,11 @@ export default function TrackingPage() {
       )}
 
       {/* Real-Time Update Indicator */}
-      <div className={`fixed top-16 right-4 z-50 transition-all duration-300 ${
-        updatePulse ? 'scale-110 opacity-100' : 'scale-100 opacity-70'
-      }`}>
+      <div className={`fixed top-16 right-4 z-50 transition-all duration-300 ${updatePulse ? 'scale-110 opacity-100' : 'scale-100 opacity-70'
+        }`}>
         <div className="bg-white rounded-full shadow-lg px-4 py-2 border-2 border-green-400 flex items-center space-x-2">
-          <div className={`w-3 h-3 rounded-full ${
-            isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
-          }`}></div>
+          <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+            }`}></div>
           <span className="text-xs font-bold text-gray-700">
             {isConnected ? 'Live' : 'Offline'}
           </span>
@@ -561,19 +604,18 @@ export default function TrackingPage() {
       />
 
       {/* Sticky ETA Bar */}
-      <div className={`sticky top-16 z-40 border-b-4 border-black shadow-lg ${
-        trackingData.status === 'COMPLETED' 
-          ? 'bg-gradient-to-r from-green-400 to-green-500' 
-          : 'bg-gradient-to-r from-yellow-400 to-yellow-500'
-      }`}>
+      <div className={`sticky top-16 z-40 border-b-4 border-black shadow-lg ${trackingData.status === 'COMPLETED'
+        ? 'bg-gradient-to-r from-green-400 to-green-500'
+        : 'bg-gradient-to-r from-yellow-400 to-yellow-500'
+        }`}>
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="bg-black text-yellow-400 rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg">
                 {trackingData.status === 'COMPLETED' ? '✅' :
-                 trackingData.status === 'ON_THE_WAY' ? '🚗' : 
-                 trackingData.status === 'ARRIVING' ? '📍' : 
-                 trackingData.status === 'PICKED_UP' ? '📦' : '🔍'}
+                  trackingData.status === 'ON_THE_WAY' ? '🚗' :
+                    trackingData.status === 'ARRIVING' ? '📍' :
+                      trackingData.status === 'PICKED_UP' ? '📦' : '🔍'}
               </div>
               <div>
                 <p className="text-sm font-bold text-black">
@@ -607,16 +649,16 @@ export default function TrackingPage() {
 
           {/* Progress Bar */}
           <div className="mt-2 bg-black/20 rounded-full h-2 overflow-hidden">
-            <div 
+            <div
               className="bg-black h-full transition-all duration-500"
-              style={{ 
-                width: `${
-                  trackingData.status === 'PENDING' ? 0 :
-                  trackingData.status === 'PICKED_UP' ? 25 :
-                  trackingData.status === 'ON_THE_WAY' ? 50 :
-                  trackingData.status === 'ARRIVING' ? 75 :
-                  trackingData.status === 'COMPLETED' ? 100 : 0
-                }%` 
+              style={{
+                width: `${trackingData.status === 'PENDING' ? 5 :
+                  trackingData.status === 'ASSIGNED' ? 15 :
+                    trackingData.status === 'PICKED_UP' ? 35 :
+                      trackingData.status === 'ON_THE_WAY' ? 65 :
+                        trackingData.status === 'ARRIVING' ? 85 :
+                          trackingData.status === 'COMPLETED' ? 100 : 0
+                  }%`
               }}
             />
           </div>
@@ -632,12 +674,11 @@ export default function TrackingPage() {
               <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-4 border-yellow-400 relative" style={{ height: '600px' }}>
                 {/* Live Update Badge on Map */}
                 <div className="absolute top-4 left-4 z-10 bg-black/80 text-white rounded-full px-4 py-2 text-xs font-bold flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
-                  }`}></div>
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
+                    }`}></div>
                   <span>{isConnected ? '🟢 LIVE TRACKING' : '🔴 OFFLINE'}</span>
                 </div>
-                
+
                 {/* FIXED: Ensure LiveMap gets real-time location updates */}
                 <LiveMap
                   pickup={trackingData.pickup}

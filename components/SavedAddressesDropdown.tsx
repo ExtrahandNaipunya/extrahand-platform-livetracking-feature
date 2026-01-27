@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useMapsContext } from '@/components/MapsProvider';
 
 interface SavedAddress {
   _id: string;
@@ -35,12 +36,88 @@ export default function SavedAddressesDropdown({
   mode,
   currentLocation,
 }: SavedAddressesDropdownProps) {
+  const { isLoaded } = useMapsContext();
+  const [predictions, setPredictions] = useState<google.maps.places.AutocompletePrediction[]>([]);
+  const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
+
   const [isOpen, setIsOpen] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Initialize Autocomplete Service
+  useEffect(() => {
+    if (isLoaded && window.google && !autocompleteService.current) {
+      autocompleteService.current = new window.google.maps.places.AutocompleteService();
+    }
+  }, [isLoaded]);
+
+  // Fetch predictions when query changes
+  useEffect(() => {
+    const fetchPredictions = async () => {
+      if (!searchQuery || searchQuery.length < 2 || !autocompleteService.current) {
+        setPredictions([]);
+        return;
+      }
+
+      // Don't fetch if query matches an existing address exactly (to avoid noise)
+      // but here we want suggestions so maybe we should.
+
+      const request: google.maps.places.AutocompletionRequest = {
+        input: searchQuery,
+        componentRestrictions: { country: 'in' }, // Restrict to India
+      };
+
+      // Optional: Bias towards current map center/location if available
+      if (currentLocation) {
+        request.locationBias = new google.maps.Circle({
+          center: currentLocation,
+          radius: 50000, // 50km bias
+        });
+      }
+
+      try {
+        autocompleteService.current.getPlacePredictions(request, (results, status) => {
+          if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+            setPredictions(results);
+          } else {
+            setPredictions([]);
+          }
+        });
+      } catch (error) {
+        console.error('Error fetching predictions:', error);
+        setPredictions([]);
+      }
+    };
+
+    const timer = setTimeout(fetchPredictions, 400); // 400ms debounce
+    return () => clearTimeout(timer);
+  }, [searchQuery, currentLocation, isLoaded]);
+
+  const handlePredictionSelect = async (prediction: google.maps.places.AutocompletePrediction) => {
+    if (!window.google) return;
+
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+      const result = await geocoder.geocode({ placeId: prediction.place_id });
+
+      if (result.results[0]) {
+        const location = result.results[0].geometry.location;
+        onSelect({
+          lat: location.lat(),
+          lng: location.lng(),
+          address: prediction.description,
+        });
+        setSearchQuery(''); // Clear search
+        setIsOpen(false);
+      }
+    } catch (error) {
+      console.error('Error getting location details:', error);
+      alert('Failed to get location details. Please try again.');
+    }
+  };
 
   // Load saved addresses
   useEffect(() => {
@@ -126,11 +203,11 @@ export default function SavedAddressesDropdown({
       console.error('📋 Error response:', error.response);
       console.error('📝 Error data:', error.response?.data);
       console.error('🔍 Validation details:', error.response?.data?.details);
-      
+
       setIsSaving(false);
-      
+
       let errorMsg = 'Unknown error';
-      
+
       if (error.response?.data?.details) {
         const details = error.response.data.details;
         errorMsg = details.map((e: any) => `${e.path?.join('.') || 'field'}: ${e.message}`).join('\n');
@@ -140,7 +217,7 @@ export default function SavedAddressesDropdown({
       } else {
         errorMsg = error.message;
       }
-      
+
       alert('❌ Failed to save:\n' + errorMsg);
     }
   };
@@ -152,13 +229,20 @@ export default function SavedAddressesDropdown({
 
   const recentAddresses = filteredAddresses.slice(0, 5);
 
+  // Sync search query with selected address from parent keys
+  useEffect(() => {
+    if (selectedAddress) {
+      setSearchQuery(selectedAddress);
+    }
+  }, [selectedAddress]);
+
   return (
     <div ref={dropdownRef} className="relative w-full">
       {/* Input Field */}
       <div className="relative">
         <input
           type="text"
-          value={searchQuery || selectedAddress || ''}
+          value={searchQuery}
           onChange={(e) => {
             setSearchQuery(e.target.value);
             if (e.target.value) {
@@ -167,10 +251,6 @@ export default function SavedAddressesDropdown({
           }}
           onFocus={() => {
             setIsOpen(true);
-            // ✅ Clear search to show all addresses
-            if (selectedAddress && !searchQuery) {
-              setSearchQuery('');
-            }
           }}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setIsOpen(false);
@@ -178,7 +258,7 @@ export default function SavedAddressesDropdown({
           placeholder={placeholder}
           className="w-full px-4 py-3 pl-12 pr-12 border-2 border-yellow-400 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 text-sm font-medium"
         />
-        
+
         {/* Icon */}
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-yellow-600">
           {mode === 'pickup' ? '📍' : '🎯'}
@@ -194,11 +274,10 @@ export default function SavedAddressesDropdown({
               }
             }}
             disabled={isSaving || savedAddresses.some(a => a.fullAddress === selectedAddress)}
-            className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-300 ${
-              savedAddresses.some(a => a.fullAddress === selectedAddress) || isSaving
-                ? 'text-yellow-600 scale-110'
-                : 'text-gray-400 hover:text-yellow-600 hover:scale-110'
-            }`}
+            className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-300 ${savedAddresses.some(a => a.fullAddress === selectedAddress) || isSaving
+              ? 'text-yellow-600 scale-110'
+              : 'text-gray-400 hover:text-yellow-600 hover:scale-110'
+              }`}
             title={savedAddresses.some(a => a.fullAddress === selectedAddress) ? 'Address saved' : 'Click to save address'}
           >
             {isSaving ? (
@@ -235,79 +314,45 @@ export default function SavedAddressesDropdown({
 
 
       {/* Dropdown Menu */}
-      {isOpen && (
+      {isOpen && (predictions.length > 0 || loading) && (
         <div className="absolute z-10 mt-2 w-full bg-white border-2 border-yellow-400 rounded-lg shadow-2xl max-h-96 overflow-y-auto">
           {loading ? (
             <div className="p-4 text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400 mx-auto mb-2"></div>
-              <p className="text-sm text-gray-600">Loading addresses...</p>
+              <p className="text-sm text-gray-600">Loading...</p>
             </div>
-          ) : recentAddresses.length > 0 ? (
+          ) : (
             <>
-              {/* Header */}
-              <div className="sticky top-0 bg-gradient-to-r from-yellow-50 to-yellow-100 px-4 py-2 border-b border-yellow-200">
-                <p className="text-xs font-bold text-gray-700 flex items-center">
-                  <span className="mr-1">⭐</span>
-                  SAVED ADDRESSES
+              <div className="sticky top-0 bg-gray-50 px-4 py-2 border-b border-gray-200 border-t-4 border-t-yellow-400/20">
+                <p className="text-xs font-bold text-gray-500 flex items-center uppercase">
+                  <span className="mr-1">🔍</span>
+                  Suggestions
                 </p>
               </div>
-
-              {/* Address List */}
-              {recentAddresses.map((address) => (
+              {predictions.map((prediction) => (
                 <button
-                  key={address._id}
-                  onClick={() => handleAddressSelect(address)}
-                  className="w-full px-4 py-3 hover:bg-yellow-50 transition-colors text-left border-b border-gray-100 last:border-b-0"
+                  key={prediction.place_id}
+                  onClick={() => handlePredictionSelect(prediction)}
+                  className="w-full px-4 py-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-100 last:border-b-0"
                 >
                   <div className="flex items-start space-x-3">
-                    {/* Icon */}
                     <div className="mt-0.5">
-                      {address.isDefault ? (
-                        <div className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center text-sm">
-                          🏠
-                        </div>
-                      ) : (
-                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm">
-                          📍
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Address Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <p className="text-sm font-bold text-gray-800 truncate">
-                          {address.label}
-                        </p>
-                        {address.isDefault && (
-                          <span className="text-xs bg-yellow-400 text-black px-2 py-0.5 rounded-full font-bold">
-                            Default
-                          </span>
-                        )}
+                      <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm text-gray-400">
+                        🌍
                       </div>
-                      <p className="text-xs text-gray-600 line-clamp-2">
-                        {address.fullAddress}
-                      </p>
                     </div>
-
-                    {/* Arrow */}
-                    <div className="text-yellow-600 mt-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">
+                        {prediction.structured_formatting.main_text}
+                      </p>
+                      <p className="text-xs text-gray-500 line-clamp-1">
+                        {prediction.structured_formatting.secondary_text}
+                      </p>
                     </div>
                   </div>
                 </button>
               ))}
             </>
-          ) : (
-            <div className="p-8 text-center">
-              <div className="text-5xl mb-3">📍</div>
-              <p className="text-sm font-semibold text-gray-800 mb-1">No saved addresses yet</p>
-              <p className="text-xs text-gray-600">
-                Select a location to save it for quick access
-              </p>
-            </div>
           )}
         </div>
       )}

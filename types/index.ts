@@ -1,4 +1,4 @@
-export type TaskStatus = 'PENDING' | 'PICKED_UP' | 'ON_THE_WAY' | 'ARRIVING' | 'COMPLETED' | 'CANCELLED';
+export type TaskStatus = 'PENDING' | 'ASSIGNED' | 'PICKED_UP' | 'ON_THE_WAY' | 'ARRIVING' | 'COMPLETED' | 'CANCELLED';
 
 export interface Location {
   lat: number;

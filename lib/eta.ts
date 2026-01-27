@@ -18,9 +18,9 @@ export function haversineDistance(
   const a =
     Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
     Math.cos(lat1Rad) *
-      Math.cos(lat2Rad) *
-      Math.sin(deltaLng / 2) *
-      Math.sin(deltaLng / 2);
+    Math.cos(lat2Rad) *
+    Math.sin(deltaLng / 2) *
+    Math.sin(deltaLng / 2);
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return EARTH_RADIUS_KM * c;
@@ -103,7 +103,7 @@ export async function calculateETA(
 ): Promise<{ eta: string; distance: number; duration: number }> {
   // Try Google API first
   const googleResult = await calculateETAWithGoogle(current, destination);
-  
+
   if (googleResult) {
     return googleResult;
   }
@@ -115,13 +115,13 @@ export async function calculateETA(
 /**
  * Format duration in seconds to human-readable string
  */
-function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number): string {
   if (seconds < 60) {
     return '< 1 min';
   }
 
   const minutes = Math.round(seconds / 60);
-  
+
   if (minutes < 60) {
     return `${minutes} min${minutes > 1 ? 's' : ''}`;
   }
